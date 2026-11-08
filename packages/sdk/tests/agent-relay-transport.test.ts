@@ -219,6 +219,40 @@ describe('native node-spawn task transport', () => {
     expect(recovered.receipt.status).toBe('completed');
   });
 
+  it('leaves failed cleanup nonterminal so a worker redispatch can finish exact release', async () => {
+    const dataDir = await dataDirectory('flows-node-worker-cleanup-');
+    const f = fixture();
+    f.release.mockRejectedValueOnce(new Error('release response lost'));
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+      stepComplete: vi.fn(async () => ({})),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_1', pins: {}, dataDir, nodeSpawnRuntime: f.runtime,
+    });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    const dispatch: StepDispatchEvent = {
+      run_id: 'run_1', step_id: 'edit', attempt: 1, step_type: 'agent',
+      spec: { cli: 'codex', instruction: 'Implement the change', transport: 'relay' },
+      idempotency_key: 'dispatch_1234567890', lease_id: 'lease_1',
+      lease_deadline_ms: Date.now() + 30_000, pins: {},
+    };
+    client.emit('step.dispatch', dispatch);
+    await vi.waitFor(() => expect(errors).toHaveLength(1));
+    expect(client.stepComplete).not.toHaveBeenCalled();
+    expect(f.ack).not.toHaveBeenCalled();
+
+    client.emit('step.dispatch', dispatch);
+    await vi.waitFor(() => expect(client.stepComplete).toHaveBeenCalledOnce());
+    await worker.close();
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledTimes(2);
+    expect(f.ack).toHaveBeenCalledOnce();
+  });
+
   it('keeps the original deadline across restart and bounds completed-result recovery', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {

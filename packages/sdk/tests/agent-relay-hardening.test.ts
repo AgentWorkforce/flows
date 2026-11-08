@@ -61,4 +61,31 @@ describe('node-spawn result hardening', () => {
     await expect(waiting).rejects.toThrow('lease lost');
     expect(returned).toHaveBeenCalledOnce();
   });
+
+  it('closes a completed inbox reader without acknowledging the delivery', async () => {
+    const returned = vi.fn();
+    const ack = vi.fn();
+    const delivery = await waitForNodeResult({ inbox: {
+      subscribe: () => ({ [Symbol.asyncIterator]: () => {
+        let delivered = false;
+        return {
+          next: async () => {
+            if (delivered) return { done: true, value: undefined } as const;
+            delivered = true;
+            return { done: false, value: { id: 'delivery_1', message: { id: 'message_1',
+              from: { id: 'agent_1', name: 'worker' }, text: NODE_RESULT_PREFIX + JSON.stringify({
+                version: 1, run_id: 'run_1', step_id: 'step_1', dispatch_id: correlation.dispatchId,
+                status: 'completed', output: { ok: true },
+              }) } } } as const;
+          },
+          return: async () => { returned(); return { done: true, value: undefined } as const; },
+        };
+      } }),
+      ack: async input => { ack(input); }, fail: async () => ({}),
+    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    expect(returned).toHaveBeenCalledOnce();
+    expect(ack).not.toHaveBeenCalled();
+    await delivery.ack();
+    expect(ack).toHaveBeenCalledOnce();
+  });
 });

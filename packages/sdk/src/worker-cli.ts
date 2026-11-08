@@ -414,6 +414,10 @@ async function runViaAgentRelay(
     return requirePricedUsage(result, model);
   } catch (error) {
     signal?.throwIfAborted();
+    // A durable exact release remains pending. Do not journal worker_error:
+    // leaving this attempt incomplete lets the kernel redispatch it, and the
+    // saved node-spawn claim resumes cleanup without spawning another agent.
+    if (error instanceof AgentRelayTransportError && error.cleanupPending) throw error;
     const detail = error instanceof AgentRelayTransportError ? error.message
       : error instanceof Error ? error.message : 'Relay task transport failed';
     return { exit_code: null, stdout_tail: '', stderr_tail: redactRelayError(detail) };

@@ -49,7 +49,8 @@ delivery; it cannot use that window to spawn or extend remote execution.
 Lease loss or timeout aborts the inbox wait and attempts exact release. A
 post-spawn verification failure carries any exact identity already proven into
 the same cleanup path. A failed cleanup is recorded as pending in the durable
-claim and the result remains unacked for an idempotent retry. A result delivery
+claim, the attempt remains incomplete for kernel redispatch, and the result
+remains unacked for an idempotent retry. A result delivery
 stays unacked until its terminal journal append succeeds, so a worker crash
 cannot turn Relay acknowledgement into fabricated execution truth.
 

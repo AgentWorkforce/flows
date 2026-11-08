@@ -28,7 +28,12 @@ export interface AgentRelayEnv {
   sandboxOnly?: boolean;
 }
 export class AgentRelayTransportError extends Error {
-  constructor(message: string, public readonly cause?: unknown) {
+  constructor(
+    message: string,
+    public readonly cause?: unknown,
+    /** Exact cleanup is durable and must be retried by a replacement attempt. */
+    public readonly cleanupPending = false,
+  ) {
     super(message);
     this.name = 'AgentRelayTransportError';
   }
@@ -233,7 +238,10 @@ export async function runAgentRelayTask(
     const detail = cleanupError === undefined
       ? safeError(error)
       : `${safeError(error)}; exact cleanup remains pending: ${safeError(cleanupError)}`;
-    throw new AgentRelayTransportError(detail, error);
+    const exactCleanupPending = claim.release === undefined
+      && claim.cleanupPending !== undefined
+      && (claim.spawn !== undefined || claim.cleanup !== undefined);
+    throw new AgentRelayTransportError(detail, error, exactCleanupPending);
   }
 
   async function settleLateSpawn(outcome: { spawn?: NodeSpawnReceipt; error?: unknown }): Promise<void> {
