@@ -30,9 +30,13 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     roots.push(dataDir);
     const dispatches = [dispatch('edit-a', 'dispatch_aaaaaaaaaa'), dispatch('edit-b', 'dispatch_bbbbbbbbbb')];
     const spawned: Array<{ name: string; agentId: string; key: string }> = [];
+    const order: string[] = [];
     let bothSpawned!: () => void;
     const ready = new Promise<void>(resolve => { bothSpawned = resolve; });
-    const ack = vi.fn(async () => ({}));
+    const ack = vi.fn(async ({ inboxItemId }: { inboxItemId: string }) => {
+      order.push(`ack:${inboxItemId}`);
+      return {};
+    });
     const spawn = vi.fn<NodeSpawnPort['spawn']>(async input => {
       const agentId = `agent_${spawned.length + 1}`;
       spawned.push({ name: input.name, agentId, key: input.idempotencyKey });
@@ -41,10 +45,11 @@ describe('AgentWorker node-spawn runtime ownership', () => {
         nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId,
         spawned: true, ready: true };
     });
-    const release = vi.fn<NodeSpawnPort['release']>(async input => ({
-      id: `release_${input.receipt.agentId}`, action: 'release', status: 'completed',
-      spawned: false, ready: false, released: true,
-    }));
+    const release = vi.fn<NodeSpawnPort['release']>(async input => {
+      order.push(`release:${input.receipt.agentId}`);
+      return { id: `release_${input.receipt.agentId}`, action: 'release', status: 'completed',
+        spawned: false, ready: false, released: true };
+    });
     const runtime: NodeSpawnRuntime = {
       publisher: { id: 'publisher_1', name: 'flows-publisher' },
       baseUrl: 'https://cast.agentrelay.com',
@@ -72,10 +77,9 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       } },
     };
     owner.get.mockResolvedValue(runtime);
-    const order: string[] = [];
     owner.close.mockImplementation(async () => { order.push('close'); });
-    const stepComplete = vi.fn<JournalClient['stepComplete']>(async () => {
-      order.push('journal');
+    const stepComplete = vi.fn<JournalClient['stepComplete']>(async (_runId, stepId) => {
+      order.push(`journal:${stepId}`);
       return {} as Awaited<ReturnType<JournalClient['stepComplete']>>;
     });
     const client = Object.assign(new EventEmitter(), {
@@ -104,7 +108,18 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       ]));
     expect(ack).toHaveBeenCalledTimes(2);
     expect(owner.close).toHaveBeenCalledOnce();
-    expect(order).toEqual(['journal', 'journal', 'close']);
+    for (const item of spawned) {
+      const stepId = dispatches.find(value => value.idempotency_key === item.key)!.step_id;
+      const releaseIndex = order.indexOf(`release:${item.agentId}`);
+      const journalIndex = order.indexOf(`journal:${stepId}`);
+      const ackIndex = order.indexOf(`ack:delivery_${item.agentId}`);
+      const closeIndex = order.indexOf('close');
+      expect([releaseIndex, journalIndex, ackIndex, closeIndex].every(index => index >= 0)).toBe(true);
+      expect(releaseIndex).toBeLessThan(journalIndex);
+      expect(journalIndex).toBeLessThan(ackIndex);
+      expect(ackIndex).toBeLessThan(closeIndex);
+    }
+    expect(order.at(-1)).toBe('close');
   });
 });
 
