@@ -1,91 +1,44 @@
-import { readFile } from "node:fs/promises";
-import { describe, expect, it, vi } from "vitest";
-import { runAgentRelayTask } from "../src/agent-relay-transport.js";
-import { readTaskReceipt } from "../src/agent-relay-receipt.js";
+import { describe, expect, it, vi } from 'vitest';
+import { readNodeResult, waitForNodeResult, NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
 
-const wire = JSON.parse(
-  await readFile(
-    new URL("./fixtures/relay-task/relaycast-436.json", import.meta.url),
-    "utf8",
-  ),
-);
-const id = wire.ack.data.invocation_id;
-const request = {
-  cli: "claude",
-  task: "fixture",
-  runId: "run",
-  stepId: "step",
-  idempotencyKey: "key",
-  dataDir: "/unused",
-};
+const correlation = { runId: 'run_1', stepId: 'step_1', dispatchId: 'dispatch_1234567890' };
 
-describe("Relay credential origin", () => {
-  for (const baseUrl of [
-    "http://cast.agentrelay.com",
-    "http://192.168.1.1",
-    "http://localhost.example",
-    "http://127.0.0.1.example",
-  ]) {
-    it(`refuses bearer credentials at ${baseUrl} before any request`, async () => {
-      const fetchMock = vi.fn();
-      await expect(
-        runAgentRelayTask(request, {
-          baseUrl,
-          agentToken: "fixture-token",
-          fetch: fetchMock,
-        }),
-      ).rejects.toThrow(/require HTTPS/);
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
-  }
-  for (const baseUrl of [
-    "https://cast.agentrelay.com",
-    "http://127.0.0.1:1234",
-    "http://127.9.8.7:1234",
-    "http://[::1]:1234",
-  ]) {
-    it(`allows ${baseUrl} to reach the authenticated identity check`, async () => {
-      const fetchMock = vi.fn(async () => new Response("", { status: 401 }));
-      await expect(
-        runAgentRelayTask(request, {
-          baseUrl,
-          agentToken: "fixture-token",
-          fetch: fetchMock,
-        }),
-      ).rejects.toThrow("HTTP 401");
-      expect(fetchMock).toHaveBeenCalledOnce();
-    });
-  }
-});
-
-describe("Relay acceptance identity", () => {
-  it("allows generation and acceptance time to appear once on the same execution", () => {
-    const pending = readTaskReceipt(wire.dispatched.data, id, wire.input);
-    expect(
-      readTaskReceipt(wire.running.data, id, wire.input, pending).status,
-    ).toBe("running");
+describe('node-spawn result hardening', () => {
+  it('requires immutable attempt correlation and terminal evidence', () => {
+    expect(() => readNodeResult({ version: 1, run_id: 'other', step_id: 'step_1',
+      dispatch_id: correlation.dispatchId, status: 'completed', output: {} }, correlation)).toThrow('correlation');
+    expect(() => readNodeResult({ version: 1, run_id: 'run_1', step_id: 'step_1',
+      dispatch_id: correlation.dispatchId, status: 'failed' }, correlation)).toThrow('reason');
   });
-  it("refuses an execution change before the generation exists", () => {
-    const pending = readTaskReceipt(wire.dispatched.data, id, wire.input);
-    const changed = structuredClone(wire.running.data);
-    changed.task_execution.execution_id += "/replacement";
-    expect(() => readTaskReceipt(changed, id, wire.input, pending)).toThrow(
-      /changed its execution/,
-    );
+
+  it('ignores a forged name match without the exact immutable sender id', async () => {
+    const ack = vi.fn();
+    const delivery = await waitForNodeResult({
+      inbox: {
+        subscribe: async function* () {
+          for (const [id, sender] of [['forged', 'attacker'], ['real', 'agent_1']] as const) yield {
+            id, message: { id: `message_${id}`, from: { id: sender, name: 'worker' },
+              text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1', step_id: 'step_1',
+                dispatch_id: correlation.dispatchId, status: 'completed', output: { id } }) },
+          };
+        },
+        ack: async input => { ack(input); }, fail: async () => {},
+      },
+    }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    expect(delivery.envelope.output).toEqual({ id: 'real' });
+    expect(ack).not.toHaveBeenCalled();
   });
-  for (const field of ["worker_generation", "accepted_at"]) {
-    it(`refuses changed or removed ${field} after acceptance`, () => {
-      const running = readTaskReceipt(wire.running.data, id, wire.input);
-      const changed = structuredClone(wire.completed.data);
-      changed.task_execution[field] =
-        field === "accepted_at" ? "2026-01-01T00:00:00.000Z" : "replacement";
-      expect(() => readTaskReceipt(changed, id, wire.input, running)).toThrow(
-        /changed its execution/,
-      );
-      delete changed.task_execution[field];
-      expect(() => readTaskReceipt(changed, id, wire.input, running)).toThrow(
-        /acceptance/,
-      );
-    });
-  }
+
+  it('dead-letters a malformed exact-sender completion only after journal settlement', async () => {
+    const fail = vi.fn(async () => ({}));
+    const delivery = await waitForNodeResult({ inbox: {
+      subscribe: async function* () { yield { id: 'delivery_bad', message: { id: 'message_bad',
+        from: { id: 'agent_1', name: 'worker' }, text: NODE_RESULT_PREFIX + '{bad' } }; },
+      ack: async () => ({}), fail,
+    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    expect(delivery.envelope.status).toBe('failed');
+    expect(fail).not.toHaveBeenCalled();
+    await delivery.ack();
+    expect(fail).toHaveBeenCalledWith(expect.objectContaining({ inboxItemId: 'delivery_bad', retry: false }));
+  });
 });

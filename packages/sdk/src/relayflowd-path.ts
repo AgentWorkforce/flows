@@ -4,7 +4,7 @@
 // with a minimal PATH, and that is exactly the case where a `which` lookup
 // fails to see the binary the installer placed next to its own launcher. The
 // multi-anchor order below is ported from ../relay's
-// packages/harness-driver/src/broker-path.ts for that reason.
+// Agent Relay's launcher resolution for that reason.
 
 import { createRequire } from 'node:module';
 import { accessSync, constants, existsSync, realpathSync, statSync } from 'node:fs';

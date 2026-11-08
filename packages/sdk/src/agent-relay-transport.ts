@@ -1,16 +1,11 @@
-import { createHash } from "node:crypto";
-import { isIP } from "node:net";
-import { setTimeout as delay } from "node:timers/promises";
-import { claimRelayTask } from "./agent-relay-state.js";
-import { canonicalize } from "./canonical.js";
-import {
-  isRecord,
-  nonempty,
-  readTaskReceipt,
-  type RelayTaskReceipt,
-} from "./agent-relay-receipt.js";
+import { createHash } from 'node:crypto';
+import { claimNodeSpawn, recordNodeSpawn, type NodeSpawnClaim } from './node-spawn-state.js';
+import { nodeResultInstruction, waitForNodeResult } from './node-spawn-result.js';
+import { createRemoteNodeSpawnRuntime, type NodeSpawnRuntime } from './node-spawn-runtime.js';
+import { NodeSpawnError, nonempty, validIdempotencyKey } from './node-spawn.js';
+import type { RelayTaskResult } from './agent-relay-receipt.js';
 
-export type AgentTransport = "direct" | "relay";
+export type AgentTransport = 'direct' | 'relay';
 export interface AgentRelayTaskRequest {
   cli: string;
   task: string;
@@ -21,253 +16,185 @@ export interface AgentRelayTaskRequest {
   stepId: string;
   idempotencyKey: string;
   dataDir: string;
-  /** Engine task contract ceiling; bounded independently of the renewing lease. */
+  /** Engine task contract ceiling; bounded independently of the worker lease. */
   timeoutMs?: number;
 }
 export interface AgentRelayEnv {
   baseUrl?: string;
   agentToken?: string;
+  node?: string;
+  repo?: string;
+  sandboxOnly?: boolean;
 }
 export class AgentRelayTransportError extends Error {
-  constructor(
-    message: string,
-    public readonly cause?: unknown,
-  ) {
+  constructor(message: string, public readonly cause?: unknown) {
     super(message);
-    this.name = "AgentRelayTransportError";
+    this.name = 'AgentRelayTransportError';
   }
-}
-export function readAgentRelayEnv(
-  env: NodeJS.ProcessEnv = process.env,
-): Required<AgentRelayEnv> {
-  const agentToken = env.RELAY_AGENT_TOKEN?.trim();
-  if (!agentToken)
-    throw new AgentRelayTransportError(
-      "Relay task transport requires a pre-provisioned RELAY_AGENT_TOKEN.",
-    );
-  return {
-    baseUrl: env.RELAY_BASE_URL?.trim() || "https://cast.agentrelay.com",
-    agentToken,
-  };
 }
 
-/** Exact Relaycast #436 HTTP contract. Only terminal GET receipts can return. */
+export function readAgentRelayEnv(env: NodeJS.ProcessEnv = process.env): Required<Pick<AgentRelayEnv, 'baseUrl' | 'agentToken'>> {
+  const agentToken = env.RELAY_AGENT_TOKEN?.trim();
+  if (!agentToken) throw new AgentRelayTransportError(
+    'Node-spawn transport requires a dedicated publisher RELAY_AGENT_TOKEN.');
+  return { baseUrl: env.RELAY_BASE_URL?.trim() || 'https://cast.agentrelay.com', agentToken };
+}
+
+/**
+ * Dispatches exactly once through an Agent Relay node and waits on the
+ * publisher's durable inbox. AgentWorker acks the returned delivery only
+ * after stepComplete has durably entered the journal.
+ */
 export async function runAgentRelayTask(
   request: AgentRelayTaskRequest,
-  options: AgentRelayEnv & {
-    fetch?: typeof fetch;
-    signal?: AbortSignal;
-    pollMs?: number;
-  } = {},
-): Promise<RelayTaskReceipt> {
-  const env = options.agentToken
-    ? {
-        baseUrl: options.baseUrl || "https://cast.agentrelay.com",
-        agentToken: options.agentToken,
-      }
-    : { ...readAgentRelayEnv(), ...options };
-  const base = new URL(env.baseUrl!);
-  if (
-    base.username ||
-    base.password ||
-    base.search ||
-    base.hash ||
-    base.pathname !== "/" ||
-    !["https:", "http:"].includes(base.protocol)
-  )
-    throw new AgentRelayTransportError("Invalid Relay task base URL");
-  const loopback =
-    base.hostname === "[::1]" ||
-    (isIP(base.hostname) === 4 && base.hostname.startsWith("127."));
-  if (base.protocol !== "https:" && !loopback) {
-    throw new AgentRelayTransportError(
-      "Relay task credentials require HTTPS outside literal loopback addresses",
-    );
-  }
-  const baseUrl = base.origin;
+  options: AgentRelayEnv & { runtime?: NodeSpawnRuntime; signal?: AbortSignal } = {},
+): Promise<RelayTaskResult> {
+  options.signal?.throwIfAborted();
   const timeoutMs = request.timeoutMs ?? 86_400_000;
-  if (
-    !Number.isSafeInteger(timeoutMs) ||
-    timeoutMs < 1 ||
-    timeoutMs > 86_400_000 ||
-    ![
-      request.runId,
-      request.stepId,
-      request.idempotencyKey,
-      request.dataDir,
-      request.cli,
-    ].every(nonempty)
-  ) {
-    throw new AgentRelayTransportError(
-      "Relay task requires durable dispatch identity and a valid deadline",
-    );
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 86_400_000
+    || ![request.runId, request.stepId, request.dataDir, request.cli].every(nonempty)
+    || !validIdempotencyKey(request.idempotencyKey)) {
+    throw new AgentRelayTransportError('Node-spawn task requires durable dispatch identity and a valid deadline');
   }
-  const pollMs = options.pollMs ?? 1000;
-  if (!Number.isFinite(pollMs) || pollMs < 1)
-    throw new AgentRelayTransportError("Invalid Relay task polling interval");
-  const doFetch = options.fetch ?? globalThis.fetch;
-  const outer = options.signal ?? new AbortController().signal;
-  let deadline = Date.now() + timeoutMs + 30_000;
-  let missingDeadline = Date.now() + 30_000;
-  async function http(
-    path: string,
-    body?: unknown,
-  ): Promise<Record<string, unknown>> {
-    for (;;) {
-      outer.throwIfAborted();
-      if (Date.now() >= deadline)
-        throw new AgentRelayTransportError(
-          "Relay task status unavailable before its reconciliation deadline",
-        );
-      const bounded = AbortSignal.any([
-        outer,
-        AbortSignal.timeout(
-          Math.min(15_000, Math.max(1, deadline - Date.now())),
-        ),
-      ]);
-      let response: Response | undefined;
-      let value: unknown;
-      try {
-        response = await doFetch(new URL(path, baseUrl), {
-          method: body === undefined ? "GET" : "POST",
-          redirect: "error",
-          signal: bounded,
-          headers: {
-            authorization: `Bearer ${env.agentToken}`,
-            "content-type": "application/json",
-            ...(body === undefined
-              ? {}
-              : { "Idempotency-Key": request.idempotencyKey }),
-          },
-          ...(body === undefined ? {} : { body: canonicalize(body) }),
-        });
-        if (
-          response.status === 404 &&
-          body === undefined &&
-          path.includes("/invocations/")
-        ) {
-          if (Date.now() >= missingDeadline)
-            throw new AgentRelayTransportError(
-              "Relay task dispatch remains unconfirmed; no repeat POST is permitted",
-            );
-        } else if (
-          !response.ok &&
-          response.status !== 429 &&
-          response.status < 500
-        ) {
-          // Never copy untrusted response bodies, URLs, or tokens into diagnostics.
-          throw new AgentRelayTransportError(
-            `Relay task request refused with HTTP ${response.status}`,
-          );
-        }
-        if (response.ok) value = await response.json();
-        if (body !== undefined && !response.ok) return {}; // ambiguous POST: GET only below
-      } catch (error) {
-        outer.throwIfAborted();
-        if (error instanceof AgentRelayTransportError) throw error;
-        if (body !== undefined) return {}; // response loss or invalid JSON never causes another POST
-        if (response?.ok && !bounded.aborted)
-          throw new AgentRelayTransportError(
-            "Relay task response was not valid JSON",
-          );
-      }
-      outer.throwIfAborted();
-      if (response?.ok && value !== undefined) {
-        if (!isRecord(value) || value.ok !== true || !isRecord(value.data))
-          throw new AgentRelayTransportError(
-            "Relay task response has an invalid data envelope",
-          );
-        return value.data;
-      }
-      await delay(pollMs, undefined, { signal: outer });
-    }
-  }
-  // Resolving the agent is read-only. Pin identity before any invocation so a
-  // restarted runner cannot create a second task using another caller's key.
-  const agent = await http("/v1/agent");
-  if (!nonempty(agent.id))
-    throw new AgentRelayTransportError("Relay task caller identity is missing");
-  if (!nonempty(agent.workspace_id))
-    throw new AgentRelayTransportError(
-      "Relay task workspace identity is missing",
-    );
-  // Pinned action-invoke-v1 identity contract from Relaycast #436.
-  const invocationId =
-    "inv_idem_" +
-    createHash("sha256")
-      .update(
-        [
-          "action-invoke-v1",
-          agent.workspace_id,
-          agent.id,
-          "task.run",
-          request.idempotencyKey,
-        ].join("\0"),
-      )
-      .digest("hex");
-  const input = {
-    cli: request.cli,
-    task: request.task,
-    ...(request.model === undefined ? {} : { model: request.model }),
-    ...(request.worker_cwd === undefined
-      ? {}
-      : { worker_cwd: request.worker_cwd }),
-    ...(request.result_schema === undefined
-      ? {}
-      : { result_schema: request.result_schema }),
-    task_context: {
-      run_id: request.runId,
-      step_id: request.stepId,
-      dispatch_id: request.idempotencyKey,
-      timeout_ms: timeoutMs,
-    },
-  };
-  const { claim, created } = await claimRelayTask(request.dataDir, {
-    version: 1,
-    baseUrl,
-    callerId: agent.id,
-    workspaceId: agent.workspace_id,
-    invocationId,
+  const runtime = options.runtime ?? await createRemoteNodeSpawnRuntime({
+    ...process.env,
+    ...(options.baseUrl === undefined ? {} : { RELAY_BASE_URL: options.baseUrl }),
+    ...(options.agentToken === undefined ? {} : { RELAY_AGENT_TOKEN: options.agentToken }),
+    ...(options.node === undefined ? {} : { RELAYFLOW_NODE_NAME: options.node }),
+    ...(options.repo === undefined ? {} : { RELAYFLOW_NODE_REPO: options.repo }),
+    ...(options.sandboxOnly === undefined ? {} : { RELAYFLOW_NODE_SANDBOX_ONLY: options.sandboxOnly ? '1' : '0' }),
+  });
+  const correlation = { runId: request.runId, stepId: request.stepId, dispatchId: request.idempotencyKey };
+  const agentName = stableAgentName(request);
+  const task = [
+    request.task,
+    request.result_schema === undefined ? undefined
+      : `The final output must satisfy this JSON Schema: ${JSON.stringify(request.result_schema)}`,
+    nodeResultInstruction(correlation),
+  ].filter(nonempty).join('\n\n');
+  const proposed: NodeSpawnClaim = {
+    version: 2,
+    baseUrl: runtime.baseUrl,
+    publisherId: runtime.publisher.id,
+    publisherName: runtime.publisher.name,
     runId: request.runId,
     stepId: request.stepId,
     idempotencyKey: request.idempotencyKey,
-    input,
+    agentName,
+    request: {
+      cli: request.cli, task, ...(request.model === undefined ? {} : { model: request.model }),
+      ...(request.worker_cwd === undefined ? {} : { worker_cwd: request.worker_cwd }),
+      ...(runtime.node === undefined ? {} : { node: runtime.node }),
+      ...(runtime.repo === undefined ? {} : { repo: runtime.repo }),
+      ...(runtime.sandboxOnly === undefined ? {} : { sandbox_only: runtime.sandboxOnly }),
+    },
     startedAt: Date.now(),
-  });
-  // A restarted runner may recover a terminal receipt after the task deadline.
-  // Give that read one bounded window; never reopen or extend the remote task.
-  deadline = Math.max(
-    claim.startedAt + timeoutMs + 30_000,
-    Date.now() + 15_000,
-  );
-  missingDeadline = claim.startedAt + 30_000;
-  if (created) {
-    const ack = await http("/v1/actions/task.run/invoke", { input });
-    if (
-      Object.keys(ack).length &&
-      (ack.invocation_id !== invocationId ||
-        ack.action_name !== "task.run" ||
-        canonicalize(ack.input) !== canonicalize(input))
-    ) {
-      throw new AgentRelayTransportError(
-        "Relay task acknowledgment has mismatched invocation or input",
-      );
+  };
+  const claimed = await claimNodeSpawn(request.dataDir, proposed);
+  let claim = claimed.claim;
+  if (!claimed.created && claim.spawn === undefined) {
+    throw new AgentRelayTransportError(
+      'A prior node-spawn dispatch ended in the ambiguous pre-ack window; refusing a second spawn');
+  }
+  try {
+    if (claim.spawn === undefined) {
+      const spawn = await runtime.port.spawn({
+        name: agentName,
+        harness: request.cli,
+        task,
+        model: request.model,
+        directory: request.worker_cwd,
+        idempotencyKey: request.idempotencyKey,
+        node: runtime.node,
+        repo: runtime.repo,
+        sandboxOnly: runtime.sandboxOnly,
+        timeoutMs: Math.min(timeoutMs + 30_000, 86_430_000),
+      });
+      claim = { ...claim, spawn };
+      await recordNodeSpawn(claimed.path, claim);
+    } else {
+      const status = await runtime.port.status('spawn', claim.spawn.id);
+      if (status.status === 'failed') throw new NodeSpawnError('The recorded node spawn failed', status.errorCode);
     }
+    const spawn = claim.spawn;
+    if (spawn === undefined) throw new AgentRelayTransportError('Node-spawn claim lost its confirmed receipt');
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout]);
+    const delivery = await waitForNodeResult(runtime.inbox, {
+      agentId: spawn.agentId,
+      agentName: spawn.name,
+      ...correlation,
+    }, signal);
+    signal.throwIfAborted();
+    let releaseError: unknown;
+    if (claim.release === undefined) {
+      try {
+        const released = await runtime.port.release({ receipt: spawn,
+          idempotencyKey: releaseKey(request.idempotencyKey) });
+        claim = { ...claim, release: { invocationId: released.id, status: released.status } };
+        await recordNodeSpawn(claimed.path, claim);
+      } catch (error) { releaseError = error; }
+    }
+    signal.throwIfAborted();
+    const envelope = delivery.envelope;
+    const error = releaseError === undefined
+      ? envelope.status === 'failed' ? envelope.error! : null
+      : `Spawned agent release was not confirmed: ${safeError(releaseError)}`;
+    const status = error === null ? 'completed' : 'failed';
+    return {
+      spawn,
+      delivery,
+      envelope,
+      receipt: {
+        invocation_id: spawn.id,
+        action_name: 'spawn',
+        status,
+        task_execution: {
+          execution_id: spawn.id,
+          run_id: request.runId,
+          step_id: request.stepId,
+          dispatch_id: request.idempotencyKey,
+          deadline: new Date(claim.startedAt + timeoutMs).toISOString(),
+          node_id: spawn.nodeId,
+          node_name: spawn.nodeName,
+          agent_id: spawn.agentId,
+          agent_name: spawn.name,
+          delivery_id: delivery.inboxItemId,
+          message_id: delivery.messageId,
+          ...(claim.release === undefined ? {} : { release_invocation_id: claim.release.invocationId }),
+          ...(envelope.accounting === undefined ? {} : { accounting: envelope.accounting }),
+        },
+        output: envelope.output,
+        error,
+        completed_at: new Date().toISOString(),
+      },
+    };
+  } catch (error) {
+    if (claim.spawn !== undefined && claim.release === undefined) {
+      try {
+        const released = await runtime.port.release({ receipt: claim.spawn,
+          idempotencyKey: releaseKey(request.idempotencyKey) });
+        claim = { ...claim, release: { invocationId: released.id, status: released.status } };
+        await recordNodeSpawn(claimed.path, claim);
+      } catch { /* Durable claim retains exact cleanup identity for audit/recovery. */ }
+    }
+    options.signal?.throwIfAborted();
+    throw new AgentRelayTransportError(safeError(error), error);
   }
-  let previous: RelayTaskReceipt | undefined;
-  for (;;) {
-    const value = await http(
-      `/v1/actions/task.run/invocations/${encodeURIComponent(invocationId)}`,
-    );
-    if (value.caller_id !== agent.id)
-      throw new AgentRelayTransportError(
-        "Relay task receipt belongs to another caller",
-      );
-    const receipt = readTaskReceipt(value, invocationId, input, previous);
-    outer.throwIfAborted();
-    if (receipt.status === "completed" || receipt.status === "failed")
-      return receipt;
-    previous = receipt;
-    await delay(pollMs, undefined, { signal: outer });
-  }
+}
+
+function stableAgentName(request: AgentRelayTaskRequest): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify([request.runId, request.stepId, request.idempotencyKey]))
+    .digest('hex').slice(0, 24);
+  const label = request.stepId.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'step';
+  return `rf-${label.slice(0, 30)}-${digest}`;
+}
+
+function releaseKey(key: string): string {
+  return `release_${createHash('sha256').update(key).digest('hex').slice(0, 32)}`;
+}
+
+function safeError(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : 'Node-spawn task failed';
 }

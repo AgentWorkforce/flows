@@ -1,5 +1,4 @@
 import { brokerInstruction } from './communication/broker-spec.js';
-import { BrokerSessions } from './communication/broker-worker.js';
 import { communicationInstruction } from './communication/spec.js';
 import { workerSpend } from './worker-spend.js';
 import { reportedCost } from './reported-cost.js';
@@ -23,6 +22,7 @@ import {
   redactText,
   type TranscriptDigest,
 } from './agent-transcript.js';
+import type { NodeSpawnRuntime } from './node-spawn-runtime.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
@@ -43,6 +43,8 @@ export interface AgentWorkerOptions {
   runRoot?: string;
   /** Source environment; each provider CLI receives only its allowlist and step grants. */
   environment?: NodeJS.ProcessEnv;
+  /** Optional approved node-spawn runtime; otherwise relay steps use the agent-token fleet client. */
+  nodeSpawnRuntime?: NodeSpawnRuntime;
 }
 
 /**
@@ -62,7 +64,6 @@ export interface AgentWorkerOptions {
  * shutdown.
  */
 export class AgentWorker extends EventEmitter {
-  private readonly brokerSessions: BrokerSessions;
   private attached = false;
   private closing = false;
   private readonly inFlight: Set<Promise<void>> = new Set();
@@ -72,7 +73,6 @@ export class AgentWorker extends EventEmitter {
     private readonly options: AgentWorkerOptions,
   ) {
     super();
-    this.brokerSessions = new BrokerSessions(options.runRoot, options.environment);
   }
 
   async attach(): Promise<void> {
@@ -111,7 +111,6 @@ export class AgentWorker extends EventEmitter {
     if (pending.length > 0) {
       await Promise.allSettled(pending);
     }
-    await this.brokerSessions.close();
     this.attached = false;
   }
 
@@ -135,16 +134,14 @@ export class AgentWorker extends EventEmitter {
     }
     const broker = brokerInstruction(spec.instruction);
     if (broker) {
-      if (!this.options.dataDir) throw new Error('Broker agents require a worker data directory');
-      await this.brokerSessions.complete(this.client, dispatch, broker, this.options.dataDir);
+      await this.retiredNodeSession(dispatch,
+        'transport: broker was removed with the Relay broker. Use transport: relay for one-shot fleet execution; retained local sessions require the pending Desktop service-caller contract.');
       return;
     }
     const communication = communicationInstruction(spec.instruction);
     if (communication) {
-      if (!this.options.dataDir) throw new Error('Agent communication requires a worker data directory');
-      const { completeCommunicationDispatch } = await import('./communication/worker.js');
-      await completeCommunicationDispatch(this.client, dispatch, communication, this.options.dataDir,
-        this.options.runRoot, this.options.environment);
+      await this.retiredNodeSession(dispatch,
+        'Agent communication is unavailable without the retired broker/PTy path. Native node-spawn communication remains fail-closed until an authorized local service caller exists.');
       return;
     }
     let humanIntervention = false;
@@ -166,7 +163,8 @@ export class AgentWorker extends EventEmitter {
           }, cwd.directory ?? (spec.transport === 'relay' ? undefined : this.options.runRoot),
             spec.transport === 'relay' ? 'relay' : 'direct',
             { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
-              dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema },
+              dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema,
+              nodeSpawnRuntime: this.options.nodeSpawnRuntime },
             this.options.environment, spec.cli_identity, spec.timeout_ms, spec.resume, spec.secrets,
             this.client.supportsFeature?.('step_secret_scoping') ?? true)
           : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
@@ -200,7 +198,7 @@ export class AgentWorker extends EventEmitter {
     // `transcript` is not part of the wrapper either: it is evidence about the
     // attempt, journaled in `trajectory_tail` below on success and failure
     // alike, where the kernel already accepts and bounds it (16 KiB).
-    const { transcript, transport, ...rawWrapper } = result;
+    const { transcript, transport, relay_delivery: relayDelivery, ...rawWrapper } = result;
     // `stderr_tail` is evidence, not authored output. Redact and bound it
     // before it reaches either the worker-failure render or the journal --
     // against the environment the CLI ran with as well as this host's, since a
@@ -237,6 +235,21 @@ export class AgentWorker extends EventEmitter {
         end_pins: completionReason === 'timeout'
           ? deadlineEndPins(dispatch.pins, result.workspace_stamp)
           : dispatch.pins,
+      },
+    );
+    // Relay delivery is transport state, not execution truth. Only settle it
+    // after the journal has accepted the attempt's terminal fact.
+    await relayDelivery?.ack();
+  }
+
+  private async retiredNodeSession(dispatch: StepDispatchEvent, error: string): Promise<void> {
+    await this.client.stepComplete(
+      dispatch.run_id, dispatch.step_id, dispatch.attempt, dispatch.idempotency_key,
+      'worker_error', {
+        output: { error },
+        usage: { tokens_in: 0, tokens_out: 0, dollars_unmetered: true },
+        started_pins: dispatch.pins,
+        end_pins: dispatch.pins,
       },
     );
   }

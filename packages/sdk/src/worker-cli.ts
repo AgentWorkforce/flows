@@ -47,6 +47,7 @@ import {
 import { pinCliAlias } from './cli/pinned-cli-alias.js';
 import { prepareDevinRuntime } from './devin-runtime.js';
 import { promptOperand } from './adapters/base.js';
+import type { NodeSpawnRuntime } from './node-spawn-runtime.js';
 
 export type { CliTransportCause, CliTransportEvidence, CliTransportPhase } from './cli-transport-evidence.js';
 export { agentCompletionReason } from './cli-transport-evidence.js';
@@ -68,6 +69,8 @@ export function cliInvocationArgv0(cli: string, cliIdentity?: string): string {
 
 export interface WorkerCliResult {
   relay_task?: import('./agent-relay-receipt.js').RelayTaskReceipt;
+  /** Settled only after the journal accepts stepComplete; never journaled. */
+  relay_delivery?: { ack(): Promise<void> };
   tokens_input?: number;
   tokens_output?: number;
   exit_code: number | null;
@@ -121,6 +124,7 @@ export interface AgentRelayContext {
   idempotencyKey: string;
   dataDir?: string;
   resultSchema?: unknown;
+  nodeSpawnRuntime?: NodeSpawnRuntime;
 }
 
 export async function runAgentCli(
@@ -390,17 +394,18 @@ async function runViaAgentRelay(
   try {
     if (kind === 'relayflows-wrapper-v1') throw new Error('Relay task transport does not support same-process wrappers.');
     if (!context?.dataDir) throw new Error('Relay task transport requires a durable data directory and journal dispatch identity.');
-    const task = instruction + (wakeContext === undefined ? '' : `\n\nWake context (journaled):\n${JSON.stringify(wakeContext)}`)
-      + '\n\nReport the final task output with the injected agent_result tool and final=true. Wait for its successful durable acknowledgment before exiting.';
+    const task = instruction + (wakeContext === undefined ? '' : `\n\nWake context (journaled):\n${JSON.stringify(wakeContext)}`);
     const received = await runAgentRelayTask({
       cli: kind, task, model, worker_cwd, result_schema: context.resultSchema,
       runId: context.runId, stepId: context.stepId, idempotencyKey: context.idempotencyKey,
       dataDir: context.dataDir,
-    }, { signal });
-    const receipt = { ...received, error: received.error === null ? null : redactRelayError(received.error) };
+    }, { signal, runtime: context.nodeSpawnRuntime });
+    const receipt = { ...received.receipt,
+      error: received.receipt.error === null ? null : redactRelayError(received.receipt.error) };
     const accounting = receipt.task_execution.accounting;
     const result: WorkerCliResult = {
-      relay_task: receipt, exit_code: receipt.status === 'completed' ? 0 : 1,
+      relay_task: receipt, relay_delivery: received.delivery,
+      exit_code: receipt.status === 'completed' ? 0 : 1,
       stdout_tail: receipt.status === 'completed' ? JSON.stringify(receipt.output) : '',
       stderr_tail: receipt.status === 'failed' ? `Relay task failed: ${receipt.error}` : '',
       ...(accounting?.tokens_input === undefined ? {} : { tokens_input: accounting.tokens_input }),

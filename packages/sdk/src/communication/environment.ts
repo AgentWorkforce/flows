@@ -53,7 +53,7 @@ export function agentEnvironment(cli: string, source: NodeJS.ProcessEnv = proces
   const platform = platformAgentNames(source, cliName);
   const allowed = scopeSecrets ? validateStepSecrets(grants, source) : [];
   if (allowed.some(name => relayNames.includes(name))) {
-    throw new Error('Relay broker credentials cannot be granted to a communication agent');
+    throw new Error('Agent Relay control credentials cannot be granted to a communication agent');
   }
   for (const name of names ?? []) {
     if (!allowed.includes(name) && !platform.has(name)

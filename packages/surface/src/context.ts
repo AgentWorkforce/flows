@@ -49,9 +49,7 @@ export interface AgentOptions {
   cli?: string;
   model?: string;
   /**
-   * Broker transport accepts absolute or run-root-relative directories, including
-   * external worktrees. For direct transport:
-   * Directory this agent's CLI is spawned in, relative to the run root — the
+   * Directory this direct agent's CLI is spawned in, relative to the run root — the
    * flow-runner's working directory, and where the CLI runs when this is
    * absent. One flow can therefore drive agents in sibling checkouts. The
    * path must be relative and free of `.`, `..` and empty components, and
@@ -73,16 +71,16 @@ export interface AgentOptions {
    */
   resume?: string;
   /**
-   * Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as a
-   * local subprocess. `'broker'` opens an interactive local Relay session. `'relay'` posts to agent-relay so the agent registers
-   * as a first-class workspace participant that DMs can steer.
+   * Dispatch transport. `'direct'` (default) spawns a local subprocess.
+   * `'relay'` uses native Agent Relay node spawn. `'broker'` is retained only
+   * for source compatibility and is refused before admission.
    */
   transport?: 'direct' | 'relay' | 'broker';
-  /** Canonical AgentWorkforce/skills names installed for this broker agent. */
+  /** Legacy broker option; currently refused. */
   skills?: string[];
-  /** Keep the broker session available for f.message until the flow ends. */
+  /** Legacy broker option; currently refused. */
   keepAlive?: boolean;
-  /** Broker session channel; defaults to flow-<runId>. */
+  /** Legacy broker option; currently refused. */
   channel?: string;
   /** Semantic executions allowed when verification rejects output. Default 1. */
   maxIterations?: number;

@@ -70,7 +70,7 @@ it('communication agents drop delivered secrets by default on a scoped runtime',
   expect(agentEnvironment('claude', source, undefined, false).ANTHROPIC_API_KEY).toBe('delivered-provider-key');
   expect(() => agentEnvironment('claude', {
     ...source, RELAY_SECRET_ENV_NAMES: JSON.stringify(['RELAY_API_KEY']),
-  }, ['RELAY_API_KEY'])).toThrow('Relay broker credentials');
+  }, ['RELAY_API_KEY'])).toThrow('Agent Relay control credentials');
 });
 
 it('legacy communication agents still strip delivered repository names', () => {
