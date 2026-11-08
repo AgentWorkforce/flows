@@ -55,7 +55,8 @@ export function readAgentRelayEnv(env: NodeJS.ProcessEnv = process.env): Require
  */
 export async function runAgentRelayTask(
   request: AgentRelayTaskRequest,
-  options: AgentRelayEnv & { runtime?: NodeSpawnRuntime; signal?: AbortSignal } = {},
+  options: AgentRelayEnv & { runtime?: NodeSpawnRuntime;
+    runtimeProvider?: (signal?: AbortSignal) => Promise<NodeSpawnRuntime>; signal?: AbortSignal } = {},
 ): Promise<RelayTaskResult> {
   const taskStartedAt = Date.now();
   options.signal?.throwIfAborted();
@@ -65,7 +66,8 @@ export async function runAgentRelayTask(
     || !validIdempotencyKey(request.idempotencyKey)) {
     throw new AgentRelayTransportError('Node-spawn task requires durable dispatch identity and a valid deadline');
   }
-  const runtime = options.runtime ?? await createRemoteNodeSpawnRuntime({
+  const ownsRuntime = options.runtime === undefined && options.runtimeProvider === undefined;
+  const runtime = options.runtime ?? await options.runtimeProvider?.(options.signal) ?? await createRemoteNodeSpawnRuntime({
     ...process.env,
     ...(options.baseUrl === undefined ? {} : { RELAY_BASE_URL: options.baseUrl }),
     ...(options.agentToken === undefined ? {} : { RELAY_AGENT_TOKEN: options.agentToken }),
@@ -73,6 +75,20 @@ export async function runAgentRelayTask(
     ...(options.repo === undefined ? {} : { RELAYFLOW_NODE_REPO: options.repo }),
     ...(options.sandboxOnly === undefined ? {} : { RELAYFLOW_NODE_SANDBOX_ONLY: options.sandboxOnly ? '1' : '0' }),
   }, { signal: options.signal });
+  try {
+    return await executeAgentRelayTask(request, runtime, options.signal, taskStartedAt, timeoutMs);
+  } finally {
+    if (ownsRuntime) await runtime.disconnect?.().catch(() => undefined);
+  }
+}
+
+async function executeAgentRelayTask(
+  request: AgentRelayTaskRequest,
+  runtime: NodeSpawnRuntime,
+  signal: AbortSignal | undefined,
+  taskStartedAt: number,
+  timeoutMs: number,
+): Promise<RelayTaskResult> {
   const correlation = { runId: request.runId, stepId: request.stepId, dispatchId: request.idempotencyKey };
   const agentName = stableAgentName(request);
   const task = [
@@ -119,11 +135,11 @@ export async function runAgentRelayTask(
         claim.failure?.code ?? 'spawn_unconfirmed');
     }
     assertWithinDeadline(claim.result === undefined ? deadline : deadline + RESULT_RECOVERY_WINDOW_MS);
-    options.signal?.throwIfAborted();
+    signal?.throwIfAborted();
     if (claim.spawn === undefined) {
       // This is deliberately adjacent to the irreversible dispatch. Runtime
       // setup and durable claiming can take time or lose the worker lease.
-      options.signal?.throwIfAborted();
+      signal?.throwIfAborted();
       const remaining = remainingDeadline(deadline);
       const pendingSpawn = runtime.port.spawn({
         name: agentName,
@@ -138,14 +154,14 @@ export async function runAgentRelayTask(
         timeoutMs: remaining,
       });
       const spawnTimeout = AbortSignal.timeout(remaining);
-      const spawnSignal = options.signal === undefined
-        ? spawnTimeout : AbortSignal.any([options.signal, spawnTimeout]);
+      const spawnSignal = signal === undefined
+        ? spawnTimeout : AbortSignal.any([signal, spawnTimeout]);
       const spawn = await waitForSpawn(pendingSpawn, spawnSignal, outcome => {
         void settleLateSpawn(outcome).catch(() => undefined);
       });
       claim = { ...claim, spawn };
       await recordNodeSpawn(claimed.path, claim);
-      options.signal?.throwIfAborted();
+      signal?.throwIfAborted();
     } else {
       if (claim.cleanupPending !== undefined && claim.result === undefined
         && claim.release === undefined) {
@@ -181,13 +197,13 @@ export async function runAgentRelayTask(
     const waitDeadline = claim.result === undefined ? deadline : deadline + RESULT_RECOVERY_WINDOW_MS;
     assertWithinDeadline(waitDeadline);
     const timeout = AbortSignal.timeout(remainingDeadline(waitDeadline));
-    const signal = options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout]);
+    const resultSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
     const delivery = await waitForNodeResult(runtime.inbox, {
       agentId: spawn.agentId,
       agentName: spawn.name,
       ...correlation,
-    }, signal);
-    signal.throwIfAborted();
+    }, resultSignal);
+    resultSignal.throwIfAborted();
     if (claim.result !== undefined
       && (claim.result.inboxItemId !== delivery.inboxItemId || claim.result.messageId !== delivery.messageId)) {
       throw new NodeSpawnError('The redelivered result did not match the durable delivery identity',
@@ -204,7 +220,7 @@ export async function runAgentRelayTask(
       claim = cleanup.claim;
       if (cleanup.error !== undefined) throw cleanup.error;
     }
-    signal.throwIfAborted();
+    resultSignal.throwIfAborted();
     const envelope = delivery.envelope;
     const error = envelope.status === 'failed' ? envelope.error! : null;
     const status = error === null ? 'completed' : 'failed';
@@ -240,7 +256,7 @@ export async function runAgentRelayTask(
     let cleanupError: unknown;
     if ((claim.spawn !== undefined || claim.cleanup !== undefined)
       && claim.release === undefined && claim.failure === undefined) {
-      claim = { ...claim, failure: failureRecord(error, options.signal) };
+      claim = { ...claim, failure: failureRecord(error, signal) };
       try { await recordNodeSpawn(claimed.path, claim); }
       catch (stateError) { cleanupError = stateError; }
     }
@@ -257,7 +273,7 @@ export async function runAgentRelayTask(
       claim = cleanup.claim;
       cleanupError ??= cleanup.error;
     }
-    options.signal?.throwIfAborted();
+    signal?.throwIfAborted();
     const detail = cleanupError === undefined
       ? safeError(error)
       : `${safeError(error)}; exact cleanup remains pending: ${safeError(cleanupError)}`;

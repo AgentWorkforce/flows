@@ -13,6 +13,13 @@ export interface NodeSpawnRuntime {
   node?: string;
   repo?: string;
   sandboxOnly?: boolean;
+  /** Closes the publisher connection after every task using it has drained. */
+  disconnect?(): Promise<void>;
+}
+
+export interface NodeSpawnRuntimeOwner {
+  get(signal?: AbortSignal): Promise<NodeSpawnRuntime>;
+  close(): Promise<void>;
 }
 
 interface RelayRuntimeClient extends RemoteNodeSpawnClient, NodeResultInboxClient {
@@ -46,19 +53,70 @@ export async function createRemoteNodeSpawnRuntime(
   const client = new RelaycastMessagingClient({ baseUrl, agentToken });
   const timeout = AbortSignal.timeout(PUBLISHER_DISCOVERY_TIMEOUT_MS);
   const signal = options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout]);
-  const publisher = await discoverPublisher(client, signal);
-  if (!publisher.id?.trim() || !publisher.name?.trim()) {
-    throw new NodeSpawnError('The node-spawn publisher token has no exact Relay identity', 'publisher_identity_missing');
+  let publisher: NodeSpawnPublisher;
+  try {
+    publisher = await discoverPublisher(client, signal);
+    if (!publisher.id?.trim() || !publisher.name?.trim()) {
+      throw new NodeSpawnError('The node-spawn publisher token has no exact Relay identity', 'publisher_identity_missing');
+    }
+  } catch (error) {
+    await client.events.disconnect().catch(() => undefined);
+    throw error;
   }
   return {
     port: new RemoteNodeSpawnPort(client),
-    inbox: { inbox: client.inbox, disconnect: () => client.events.disconnect() },
+    inbox: { inbox: client.inbox },
     publisher,
     baseUrl,
+    disconnect: () => client.events.disconnect(),
     ...(env.RELAYFLOW_NODE_NAME?.trim() ? { node: env.RELAYFLOW_NODE_NAME.trim() } : {}),
     ...(env.RELAYFLOW_NODE_REPO?.trim() ? { repo: env.RELAYFLOW_NODE_REPO.trim() } : {}),
     ...(sandbox === '1' ? { sandboxOnly: true } : {}),
   };
+}
+
+/** One lazy publisher connection shared by every relay task on a worker. */
+export function createNodeSpawnRuntimeOwner(
+  provided?: NodeSpawnRuntime,
+  factory: (signal: AbortSignal) => Promise<NodeSpawnRuntime> = signal =>
+    createRemoteNodeSpawnRuntime(process.env, { signal }),
+): NodeSpawnRuntimeOwner {
+  const controller = new AbortController();
+  let pending: Promise<NodeSpawnRuntime> | undefined;
+  let closed = false;
+  const get = async (signal?: AbortSignal): Promise<NodeSpawnRuntime> => {
+    signal?.throwIfAborted();
+    if (closed) throw new NodeSpawnError('Node-spawn runtime owner is closed', 'task_cancelled');
+    if (provided !== undefined) return provided;
+    if (pending === undefined) {
+      const created = factory(controller.signal);
+      pending = created;
+      void created.catch(() => { if (pending === created) pending = undefined; });
+    }
+    return waitForRuntime(pending, signal);
+  };
+  return {
+    get,
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      controller.abort(new Error('Node-spawn runtime owner closed'));
+      if (provided !== undefined) return;
+      const runtime = await pending?.catch(() => undefined);
+      await runtime?.disconnect?.().catch(() => undefined);
+    },
+  };
+}
+
+async function waitForRuntime(pending: Promise<NodeSpawnRuntime>, signal?: AbortSignal): Promise<NodeSpawnRuntime> {
+  if (signal === undefined) return pending;
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try { return await Promise.race([pending, aborted]); }
+  finally { if (onAbort !== undefined) signal.removeEventListener('abort', onAbort); }
 }
 
 async function discoverPublisher(client: RelayRuntimeClient, signal: AbortSignal): Promise<NodeSpawnPublisher> {
@@ -71,7 +129,6 @@ async function discoverPublisher(client: RelayRuntimeClient, signal: AbortSignal
     });
     return await Promise.race([client.agents.me(), aborted]);
   } catch (error) {
-    if (signal.aborted) void client.events.disconnect().catch(() => undefined);
     throw error;
   } finally {
     if (onAbort !== undefined) signal.removeEventListener('abort', onAbort);

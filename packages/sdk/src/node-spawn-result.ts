@@ -31,8 +31,6 @@ export interface NodeResultInboxClient {
     ack(input: { inboxItemId: string; state?: 'delivered' | 'read'; metadata?: Record<string, unknown> }): Promise<unknown>;
     fail(input: { inboxItemId: string; error: string; retry?: boolean; metadata?: Record<string, unknown> }): Promise<unknown>;
   };
-  /** Closes the agent-scoped event transport after this subscription ends. */
-  disconnect?(): Promise<void>;
 }
 
 export interface NodeResultDelivery {
@@ -105,13 +103,13 @@ export async function waitForNodeResult(
     throw new Error('Agent Relay result inbox ended before the spawned agent reported completion');
   } finally {
     // A client that ignores cancellation may leave next() pending forever.
-    // Preserve prompt lease loss while still requesting resource cleanup.
+    // Preserve prompt lease loss while still closing only this subscription.
+    // The runtime owner closes the shared agent connection after every
+    // concurrent task has drained.
     if (signal?.aborted) {
       void close().catch(() => undefined);
-      void client.disconnect?.().catch(() => undefined);
     } else {
-      try { await close(); }
-      finally { await client.disconnect?.().catch(() => undefined); }
+      await close();
     }
   }
 }

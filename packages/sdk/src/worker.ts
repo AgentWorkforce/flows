@@ -22,7 +22,8 @@ import {
   redactText,
   type TranscriptDigest,
 } from './agent-transcript.js';
-import type { NodeSpawnRuntime } from './node-spawn-runtime.js';
+import { createNodeSpawnRuntimeOwner, type NodeSpawnRuntime,
+  type NodeSpawnRuntimeOwner } from './node-spawn-runtime.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
@@ -67,12 +68,14 @@ export class AgentWorker extends EventEmitter {
   private attached = false;
   private closing = false;
   private readonly inFlight: Set<Promise<void>> = new Set();
+  private readonly nodeSpawnRuntimeOwner: NodeSpawnRuntimeOwner;
 
   constructor(
     private readonly client: JournalClient,
     private readonly options: AgentWorkerOptions,
   ) {
     super();
+    this.nodeSpawnRuntimeOwner = createNodeSpawnRuntimeOwner(options.nodeSpawnRuntime);
   }
 
   async attach(): Promise<void> {
@@ -111,6 +114,7 @@ export class AgentWorker extends EventEmitter {
     if (pending.length > 0) {
       await Promise.allSettled(pending);
     }
+    await this.nodeSpawnRuntimeOwner.close();
     this.attached = false;
   }
 
@@ -164,7 +168,8 @@ export class AgentWorker extends EventEmitter {
             spec.transport === 'relay' ? 'relay' : 'direct',
             { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
               dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema,
-              nodeSpawnRuntime: this.options.nodeSpawnRuntime },
+              nodeSpawnRuntime: this.options.nodeSpawnRuntime,
+              nodeSpawnRuntimeProvider: signal => this.nodeSpawnRuntimeOwner.get(signal) },
             this.options.environment, spec.cli_identity, spec.timeout_ms, spec.resume, spec.secrets,
             this.client.supportsFeature?.('step_secret_scoping') ?? true)
           : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));

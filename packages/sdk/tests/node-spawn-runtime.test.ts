@@ -21,7 +21,8 @@ vi.mock('@agent-relay/sdk', () => ({
   },
 }));
 
-import { createRemoteNodeSpawnRuntime } from '../src/node-spawn-runtime.js';
+import { createNodeSpawnRuntimeOwner, createRemoteNodeSpawnRuntime,
+  type NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
 import { runAgentRelayTask } from '../src/agent-relay-transport.js';
 
 describe('remote node-spawn runtime', () => {
@@ -53,8 +54,31 @@ describe('remote node-spawn runtime', () => {
       agentToken: 'agent-token',
       baseUrl: 'http://127.0.0.1:8787',
     }]);
-    await runtime.inbox.disconnect?.();
+    await runtime.disconnect?.();
     expect(relay.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('shares one publisher runtime across concurrent tasks and closes it only with its owner', async () => {
+    let resolve!: (runtime: NodeSpawnRuntime) => void;
+    const disconnect = vi.fn(async () => { throw new Error('disconnect failed'); });
+    const runtime = { port: {} as NodeSpawnRuntime['port'], inbox: {} as NodeSpawnRuntime['inbox'],
+      publisher: { id: 'publisher_1', name: 'publisher' }, baseUrl: 'https://cast.agentrelay.com',
+      disconnect } satisfies NodeSpawnRuntime;
+    const factory = vi.fn((_signal: AbortSignal) => new Promise<NodeSpawnRuntime>(done => { resolve = done; }));
+    const owner = createNodeSpawnRuntimeOwner(undefined, factory);
+    const cancelled = new AbortController();
+    const first = owner.get(cancelled.signal);
+    const second = owner.get();
+    cancelled.abort(new Error('first task lost its lease'));
+    await expect(first).rejects.toThrow('first task lost its lease');
+    expect(factory).toHaveBeenCalledOnce();
+    expect(factory.mock.calls[0]![0].aborted).toBe(false);
+    resolve(runtime);
+    await expect(second).resolves.toBe(runtime);
+    await expect(owner.get()).resolves.toBe(runtime);
+    expect(disconnect).not.toHaveBeenCalled();
+    await expect(owner.close()).resolves.toBeUndefined();
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 
   it('honors cancellation during publisher discovery and cleans up the client', async () => {
