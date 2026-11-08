@@ -9,6 +9,11 @@ describe('node-spawn result hardening', () => {
       dispatch_id: correlation.dispatchId, status: 'completed', output: {} }, correlation)).toThrow('correlation');
     expect(() => readNodeResult({ version: 1, run_id: 'run_1', step_id: 'step_1',
       dispatch_id: correlation.dispatchId, status: 'failed' }, correlation)).toThrow('reason');
+    for (const amount of [0.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => readNodeResult({ version: 1, run_id: 'run_1', step_id: 'step_1',
+        dispatch_id: correlation.dispatchId, status: 'completed', output: {},
+        accounting: { tokens_input: amount } }, correlation)).toThrow('accounting');
+    }
   });
 
   it('ignores a forged name match without the exact immutable sender id', async () => {
@@ -40,5 +45,20 @@ describe('node-spawn result hardening', () => {
     expect(fail).not.toHaveBeenCalled();
     await delivery.ack();
     expect(fail).toHaveBeenCalledWith(expect.objectContaining({ inboxItemId: 'delivery_bad', retry: false }));
+  });
+
+  it('cancels an initial inbox read even when the client ignores its signal option', async () => {
+    const returned = vi.fn();
+    const controller = new AbortController();
+    const waiting = waitForNodeResult({ inbox: {
+      subscribe: () => ({ [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<never>>(() => {}),
+        return: async () => { returned(); return { done: true, value: undefined }; },
+      }) }),
+      ack: async () => ({}), fail: async () => ({}),
+    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation }, controller.signal);
+    controller.abort(new Error('lease lost'));
+    await expect(waiting).rejects.toThrow('lease lost');
+    expect(returned).toHaveBeenCalledOnce();
   });
 });

@@ -94,9 +94,9 @@ export interface Ctx extends Helpers {
   /** Classify evidence with Jev; the journal replays the recorded answer on resume. */
   classify<Options extends Record<string, string>>(options: ClassifyOptions<Options>): Step<ClassifyResult<keyof Options & string>>;
   agent(name: string, options: AgentOptions): Step<AgentResult>;
-  /** Send work to a retained broker agent and await its next JSON completion. */
+  /** Retired retained-session method; calling it is refused before admission. */
   message(agentName: string, text: string, options?: { timeout?: string | number }): Step<AgentResult>;
-  /** Release a retained broker agent before cleaning up its working directory. */
+  /** Retired retained-session method; calling it is refused before admission. */
   release(agentName: string): Step<void>;
   /** Open a durable, bounded event subscription for this running body. */
   on(source: TriggerSource, options: ActivityOptions): Activity;
@@ -196,8 +196,8 @@ export interface RunResult {
 
 ```ts
 export interface AgentOptions {
-  /** CLI time limit: milliseconds or ms/s/m duration, at most 60m.
-   * Resolves with completionReason: timeout. No default for direct; broker defaults to 60m. Requires maxIterations 1. */
+  /** Direct CLI time limit: milliseconds or ms/s/m duration, at most 60m.
+   * Resolves with completionReason: timeout. No default. Relay transport refuses this option. Requires maxIterations 1. */
   timeout?: string | number;
   task: string;
   /** Run environment secrets this agent may receive by name. Default: none. */
@@ -283,7 +283,7 @@ export interface AgentResult {
    * continue the same conversation.
    */
   sessionId?: string;
-  /** Broker session name; pass to f.message while keepAlive is enabled. */
+  /** Retired broker session identifier; no native node-spawn step populates it. */
   agentName?: string;
 }
 ```

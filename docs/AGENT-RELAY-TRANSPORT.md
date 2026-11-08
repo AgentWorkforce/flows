@@ -41,23 +41,34 @@ no recorded acknowledgement is the ambiguous crash window and fails closed.
 It is never answered by a blind second spawn. The stable worker name provides
 additional collision protection at the node.
 
+The claim also fixes the task's original start time. Resume never grants a new
+deadline. Once a correlated result was already durably observed, a restart has
+at most 30 seconds beyond that original deadline to recover the same unacked
+delivery; it cannot use that window to spawn or extend remote execution.
+
 Lease loss or timeout aborts the inbox wait and attempts exact release. A
-failed cleanup remains auditable in the durable claim. A result delivery stays
-unacked until its terminal journal append succeeds, so a worker crash cannot
-turn Relay acknowledgement into fabricated execution truth.
+post-spawn verification failure carries any exact identity already proven into
+the same cleanup path. A failed cleanup is recorded as pending in the durable
+claim and the result remains unacked for an idempotent retry. A result delivery
+stays unacked until its terminal journal append succeeds, so a worker crash
+cannot turn Relay acknowledgement into fabricated execution truth.
 
 ## Local Desktop bridge
 
 The SDK contains a local `NodeSpawnPort` adapter for the Desktop core's bridge
 v2 methods: `spawn.targets`, `spawn.invoke`, `spawn.status`, and
-`spawn.release`. It connects to the private same-user `core.sock`, validates
-socket ownership/mode, performs the `hello` handshake, passes no credentials,
-and requires an explicit caller name.
+`spawn.release`. On Unix it connects to `core.sock`, validates socket
+ownership/mode, performs the `hello` handshake, and requires an explicit
+Desktop-issued caller name and secret on invoke, status, and release. The
+secret is kept in module-private storage rather than on the exported port
+instance. Local node spawn is refused on Windows until Desktop exposes an
+authenticated named-pipe server contract; a bridge-version hello alone is not
+server authentication.
+The current bridge does not accept model, repository, or sandbox placement
+overrides, so the local adapter refuses those fields instead of dropping them.
 
-It is not selected by the CLI yet. Desktop currently authorizes only an
-existing live coding-session registration; there is no headless Flows service
-caller or delegation contract. Flows does not borrow another session's name.
-Local admission therefore stays fail-closed until Desktop supplies that
-contract.
+It is not selected by the CLI yet. Flows does not borrow another session's
+name and does not invent or provision its caller secret. Local admission stays
+fail-closed until Desktop supplies the service credential path and file shape.
 
 See [the migration note](MIGRATION-NODE-SPAWN.md) for removed broker surfaces.

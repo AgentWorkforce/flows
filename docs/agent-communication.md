@@ -4,9 +4,10 @@ The former communication runtime launched interactive broker-managed PTYs and
 injected a local helper socket. That path was removed with the Relay broker.
 Flows does not fall back to it.
 
-Existing YAML `communication.links` declarations are still parsed so old
-bundles receive a precise admission error. Preflight refuses them before a run
-is admitted. Native node-spawn communication will require two contracts that
+Existing YAML declarations with non-empty `communication.links` are still
+parsed so old bundles receive a precise admission error. Preflight refuses
+them before a run is admitted; an empty list declares no links and remains a
+no-op. Native node-spawn communication will require two contracts that
 do not yet exist together:
 
 - a supported headless local service caller/delegation contract from Agent

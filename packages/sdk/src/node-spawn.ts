@@ -25,7 +25,8 @@ export interface NodeSpawnRequest {
 }
 
 export type NodeSpawnAction = 'spawn' | 'release';
-export type NodeSpawnStatus = 'pending' | 'dispatched' | 'running' | 'completed' | 'failed';
+export type NodeSpawnStatus = 'pending' | 'dispatched' | 'running' | 'completed' | 'failed'
+  | 'denied' | 'cancelled' | 'timed_out';
 
 export interface NodeSpawnInvocation {
   id: string;
@@ -51,8 +52,17 @@ export interface NodeSpawnReceipt extends NodeSpawnInvocation {
   ready: true;
 }
 
+/** Exact identity sufficient for a safe release, even when readiness failed. */
+export interface NodeSpawnIdentity {
+  id: string;
+  nodeId?: string;
+  nodeName: string;
+  name: string;
+  agentId: string;
+}
+
 export interface NodeReleaseRequest {
-  receipt: NodeSpawnReceipt;
+  receipt: NodeSpawnIdentity;
   idempotencyKey: string;
   reason?: string;
 }
@@ -66,7 +76,13 @@ export interface NodeSpawnPort {
 }
 
 export class NodeSpawnError extends Error {
-  constructor(message: string, public readonly code = 'node_spawn_failed', public readonly cause?: unknown) {
+  constructor(
+    message: string,
+    public readonly code = 'node_spawn_failed',
+    public readonly cause?: unknown,
+    /** Exact identity to release when spawn happened but later verification failed. */
+    public readonly cleanup?: NodeSpawnIdentity,
+  ) {
     super(message);
     this.name = 'NodeSpawnError';
   }
@@ -89,4 +105,16 @@ export function validIdempotencyKey(value: unknown): value is string {
 
 export function terminalStatus(status: string): boolean {
   return ['completed', 'failed', 'denied', 'cancelled', 'canceled', 'timed_out', 'timeout'].includes(status);
+}
+
+export function normalizeNodeSpawnStatus(status: string): NodeSpawnStatus {
+  const normalized = status.toLowerCase();
+  if (normalized === 'completed') return 'completed';
+  if (normalized === 'denied') return 'denied';
+  if (normalized === 'cancelled' || normalized === 'canceled') return 'cancelled';
+  if (normalized === 'timed_out' || normalized === 'timeout') return 'timed_out';
+  if (normalized === 'failed') return 'failed';
+  if (normalized === 'running') return 'running';
+  if (normalized === 'dispatched') return 'dispatched';
+  return 'pending';
 }

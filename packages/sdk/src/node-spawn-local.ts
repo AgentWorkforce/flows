@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { createConnection, type Socket } from 'node:net';
 import {
   NodeSpawnError,
+  normalizeNodeSpawnStatus,
+  terminalStatus,
   type NodeReleaseRequest,
   type NodeSpawnAction,
   type NodeSpawnInvocation,
@@ -30,15 +31,8 @@ export function coreSocketPath(env: NodeJS.ProcessEnv = process.env, home = home
   return isAbsolute(configured) ? configured : join(dirname(fallback), configured);
 }
 
-function pipeName(socket: string): string {
-  let key = socket.replace(/\//g, '\\').toLowerCase();
-  if (key.startsWith('\\\\?\\')) key = key.slice(4);
-  while (key.length > 1 && key.endsWith('\\')) key = key.slice(0, -1);
-  return `\\\\.\\pipe\\agent-relay-${createHash('sha256').update(key).digest('hex').slice(0, 16)}`;
-}
-
 function verifySocket(socket: string): void {
-  if (process.platform === 'win32' || typeof process.getuid !== 'function') return;
+  if (typeof process.getuid !== 'function') return;
   const directory = dirname(socket);
   const entry = lstatSync(directory);
   const target = statSync(directory);
@@ -54,11 +48,15 @@ function verifySocket(socket: string): void {
 
 /** Connects to Desktop's credential-holding core bridge; never starts a daemon. */
 export async function connectCore(socket = coreSocketPath(), timeoutMs = DEFAULT_TIMEOUT_MS): Promise<CoreClient | undefined> {
-  if (process.platform !== 'win32') {
-    if (!existsSync(socket)) return undefined;
-    verifySocket(socket);
+  if (process.platform === 'win32') {
+    throw new NodeSpawnError(
+      'Local node spawn is unavailable on Windows until the Desktop pipe server can be authenticated',
+      'untrusted_core_socket',
+    );
   }
-  const stream = await openSocket(process.platform === 'win32' ? pipeName(socket) : socket, timeoutMs);
+  if (!existsSync(socket)) return undefined;
+  verifySocket(socket);
+  const stream = await openSocket(socket, timeoutMs);
   if (!stream) return undefined;
   let nextId = 1;
   let buffer = '';
@@ -140,6 +138,8 @@ export interface LocalNodeSpawnCaller {
   secret: string;
 }
 
+const callerSecrets = new WeakMap<LocalNodeSpawnPort, string>();
+
 /**
  * Local native-spawn adapter. The caller identity is deliberately explicit:
  * this class never borrows a Desktop registration or provisions a service
@@ -147,7 +147,6 @@ export interface LocalNodeSpawnCaller {
  */
 export class LocalNodeSpawnPort implements NodeSpawnPort {
   private readonly callerName: string;
-  private readonly callerSecret: string;
 
   constructor(private readonly core: CoreClient, caller: LocalNodeSpawnCaller) {
     if (!caller.name.trim() || !caller.secret.trim()) {
@@ -157,7 +156,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
       );
     }
     this.callerName = caller.name;
-    this.callerSecret = caller.secret;
+    callerSecrets.set(this, caller.secret);
   }
 
   async targets(): Promise<NodeSpawnTarget[]> {
@@ -174,6 +173,12 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
   async spawn(request: NodeSpawnRequest): Promise<NodeSpawnReceipt> {
     if (!request.directory || !isAbsolute(request.directory)) throw new NodeSpawnError('Local node spawn requires an absolute directory', 'spawn_invalid_input');
     if (!validIdempotencyKey(request.idempotencyKey)) throw new NodeSpawnError('Invalid node-spawn idempotency key', 'spawn_invalid_input');
+    if (request.model !== undefined || request.repo !== undefined || request.sandboxOnly !== undefined) {
+      throw new NodeSpawnError(
+        'The Desktop core bridge does not accept model, repository, or sandbox placement overrides',
+        'spawn_invalid_input',
+      );
+    }
     const targets = (await this.targets()).filter(candidate => candidate.live && candidate.handlersLive
       && !candidate.stale && candidate.capabilities.includes(`spawn:${request.harness}`));
     const target = request.node === undefined
@@ -181,7 +186,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
       : targets.find(candidate => candidate.name === request.node);
     if (!target?.id) throw new NodeSpawnError('No eligible local Agent Relay spawn target', 'no_eligible_node');
     const raw = await this.core.call<CoreInvocation>('spawn.invoke', {
-      caller_name: this.callerName, caller_secret: this.callerSecret,
+      caller_name: this.callerName, caller_secret: callerSecret(this),
       node_id: target.id, node_name: target.name,
       name: request.name, harness: request.harness, task: request.task,
       directory: request.directory, idempotency_key: request.idempotencyKey,
@@ -189,8 +194,18 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     // spawn.invoke is the action receipt; spawn.status is also the boundary
     // that enriches it from the core's exact same-workspace registration.
     const settled = await this.wait('spawn', raw.id, request.timeoutMs);
-    if (settled.status !== 'completed' || !settled.spawned || !settled.ready || !settled.agentId || !settled.name) {
-      throw new NodeSpawnError('The local node did not prove a ready spawned agent', settled.errorCode);
+    const cleanup = settled.agentId && settled.name && settled.nodeId === target.id
+      ? { id: settled.id, nodeId: settled.nodeId, nodeName: target.name,
+        name: settled.name, agentId: settled.agentId }
+      : undefined;
+    if (settled.status !== 'completed' || !settled.spawned || !settled.ready
+      || settled.taskUnconfirmed || !settled.agentId || !settled.name) {
+      throw new NodeSpawnError('The local node did not prove a ready spawned agent',
+        settled.taskUnconfirmed ? 'spawn_task_unconfirmed' : settled.errorCode, undefined, cleanup);
+    }
+    if (settled.name !== request.name || settled.nodeId !== target.id) {
+      throw new NodeSpawnError('The local spawn result did not preserve its requested identity',
+        'spawn_identity_mismatch', undefined, cleanup);
     }
     return { ...settled, action: 'spawn', nodeName: target.name, name: settled.name,
       agentId: settled.agentId, spawned: true, ready: true };
@@ -198,7 +213,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
 
   async status(action: NodeSpawnAction, invocationId: string): Promise<NodeSpawnInvocation> {
     const raw = await this.core.call<CoreInvocation>('spawn.status', {
-      caller_name: this.callerName, caller_secret: this.callerSecret,
+      caller_name: this.callerName, caller_secret: callerSecret(this),
       action, invocation_id: invocationId,
     });
     return mapCoreInvocation(action, raw);
@@ -209,7 +224,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     const receipt = request.receipt;
     if (!receipt.nodeId) throw new NodeSpawnError('Local release requires the exact spawn node id', 'release_identity_mismatch');
     const raw = await this.core.call<CoreInvocation>('spawn.release', {
-      caller_name: this.callerName, caller_secret: this.callerSecret,
+      caller_name: this.callerName, caller_secret: callerSecret(this),
       node_id: receipt.nodeId, node_name: receipt.nodeName,
       name: receipt.name, expected_agent_id: receipt.agentId, idempotency_key: request.idempotencyKey,
     });
@@ -224,16 +239,22 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const value = await this.status(action, id);
-      if (value.status === 'completed' || value.status === 'failed') return value;
+      if (terminalStatus(value.status)) return value;
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     throw new NodeSpawnError(`Timed out waiting for local ${action} confirmation`, `${action}_unconfirmed`);
   }
 }
 
+function callerSecret(port: LocalNodeSpawnPort): string {
+  const secret = callerSecrets.get(port);
+  if (secret === undefined) throw new NodeSpawnError('Local node spawn caller authority was lost', 'caller_required');
+  return secret;
+}
+
 function mapCoreInvocation(action: NodeSpawnAction, value: CoreInvocation): NodeSpawnInvocation {
   return {
-    id: value.id, action, status: value.status as NodeSpawnInvocation['status'],
+    id: value.id, action, status: normalizeNodeSpawnStatus(value.status),
     nodeId: value.node_id, name: value.name, agentId: value.agent_id,
     spawned: value.spawned, ready: value.ready, taskUnconfirmed: value.task_unconfirmed,
     released: value.released,

@@ -54,7 +54,11 @@ export async function createRemoteNodeSpawnRuntime(env: NodeJS.ProcessEnv = proc
 }
 
 function validateBaseUrl(raw: string): string {
-  const url = new URL(raw);
+  let url: URL;
+  try { url = new URL(raw); }
+  catch (error) {
+    throw new NodeSpawnError('Invalid Agent Relay base URL', 'spawn_invalid_input', error);
+  }
   if (url.username || url.password || url.search || url.hash || url.pathname !== '/'
     || !['https:', 'http:'].includes(url.protocol)) {
     throw new NodeSpawnError('Invalid Agent Relay base URL', 'spawn_invalid_input');

@@ -72,6 +72,7 @@
     "tests/shipped-source-worker-invocations.test.ts",
     "tests/worker-cli-cwd.test.ts",
     "tests/agent-relay-transport.test.ts",
+    "tests/broker-retirement.test.ts",
     "tests/agent-relay-hardening.test.ts",
     "tests/node-spawn-ports.test.ts",
     "tests/webhook-hardening.test.ts",

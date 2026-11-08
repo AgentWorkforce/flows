@@ -19,7 +19,8 @@ harness. Use `RELAYFLOW_NODE_NAME` for an exact node or
 
 - `transport: 'broker'`, `keepAlive`, `f.message`, and `f.release` for retained
   sessions fail before child-run admission.
-- YAML `communication.links` fails preflight.
+- YAML with non-empty `communication.links` fails preflight. An empty list
+  declares no linked session and remains a no-op.
 - `examples/issue-swarm` is retained only as a labelled migration reference;
   it is not runnable on this release.
 - `RELAYFLOW_RELAY_BROKER_BIN`, broker connection files, helper sockets, and

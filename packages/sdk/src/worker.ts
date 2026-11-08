@@ -243,6 +243,7 @@ export class AgentWorker extends EventEmitter {
   }
 
   private async retiredNodeSession(dispatch: StepDispatchEvent, error: string): Promise<void> {
+    await withWorkerLease(this.client, dispatch, async signal => { signal.throwIfAborted(); });
     await this.client.stepComplete(
       dispatch.run_id, dispatch.step_id, dispatch.attempt, dispatch.idempotency_key,
       'worker_error', {

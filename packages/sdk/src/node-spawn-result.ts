@@ -61,7 +61,11 @@ export async function waitForNodeResult(
   expected: { agentId: string; agentName: string } & NodeResultCorrelation,
   signal?: AbortSignal,
 ): Promise<NodeResultDelivery> {
-  for await (const item of client.inbox.subscribe({ signal })) {
+  const iterator = client.inbox.subscribe({ signal })[Symbol.asyncIterator]();
+  for (;;) {
+    const next = await abortableNext(iterator, signal);
+    if (next.done) break;
+    const item = next.value;
     signal?.throwIfAborted();
     if (item.message.from.id !== expected.agentId || item.message.from.name !== expected.agentName) continue;
     if (!item.message.text.startsWith(NODE_RESULT_PREFIX)) continue;
@@ -93,6 +97,27 @@ export async function waitForNodeResult(
   throw new Error('Agent Relay result inbox ended before the spawned agent reported completion');
 }
 
+async function abortableNext<T>(iterator: AsyncIterator<T>, signal?: AbortSignal): Promise<IteratorResult<T>> {
+  signal?.throwIfAborted();
+  const pending = iterator.next();
+  if (signal === undefined) return pending;
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try { return await Promise.race([pending, aborted]); }
+  catch (error) {
+    if (signal.aborted) {
+      void pending.catch(() => undefined);
+      void iterator.return?.();
+    }
+    throw error;
+  } finally {
+    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort);
+  }
+}
+
 export function readNodeResult(value: unknown, expected: NodeResultCorrelation): NodeResultEnvelope {
   if (!isRecord(value) || value.version !== 1 || value.run_id !== expected.runId
     || value.step_id !== expected.stepId || value.dispatch_id !== expected.dispatchId
@@ -107,7 +132,7 @@ export function readNodeResult(value: unknown, expected: NodeResultCorrelation):
   }
   if (value.accounting !== undefined && (!isRecord(value.accounting)
     || Object.entries(value.accounting).some(([key, amount]) => !['tokens_input', 'tokens_output'].includes(key)
-      || typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0))) {
+      || typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0))) {
     throw new Error('Spawned agent result has invalid accounting');
   }
   return value as unknown as NodeResultEnvelope;

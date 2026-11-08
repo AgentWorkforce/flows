@@ -276,8 +276,9 @@ No process runs between events: the handler wakes, executes to its next await, p
    one, while a worker that dies stops renewing and the lease expires. The run's
    wallclock budget is separate and stops *new* work, draining whatever is
    already running rather than cancelling a step mid-flight. A wrapper step and
-   a native step therefore get the same duration by default. Agent steps may
-   declare the per-step `timeout` described below, enforced on both paths.
+   a native step therefore get the same duration by default. Direct agent steps
+   may declare the per-step `timeout` described below; relay transport refuses
+   that authored option because the worker cannot stop a remote process.
 
    `flows check` resolves the binary (a path is relative to the declaring flow
    or project config; a bare name resolves via `PATH`) and caches each resolved

@@ -2,10 +2,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   NodeSpawnError,
   isRecord,
+  normalizeNodeSpawnStatus,
   nonempty,
   terminalStatus,
   type NodeReleaseRequest,
   type NodeSpawnAction,
+  type NodeSpawnIdentity,
   type NodeSpawnInvocation,
   type NodeSpawnPort,
   type NodeSpawnReceipt,
@@ -72,33 +74,58 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
     });
     const confirmation = ack.confirmation;
     const output = confirmation?.output;
+    const reportedName = nonempty(output?.name) ? output.name : request.name;
+    const nodeId = ack.node?.nodeId ?? ack.node?.id
+      ?? confirmation?.dispatchedNodeId ?? confirmation?.handlerNodeId ?? undefined;
+    let nodeName = ack.node?.name ?? ack.placement.node ?? request.node;
+    if (!nodeName && nodeId) {
+      nodeName = await this.resolveNodeName(nodeId);
+    }
+    const taskUnconfirmed = output?.warning === 'spawn_task_unconfirmed'
+      || (isRecord(output?.warning) && output.warning.code === 'spawn_task_unconfirmed');
+    let cleanup: NodeSpawnIdentity | undefined;
+    if (confirmation && output?.spawned === true && nodeName) {
+      const agent = await this.resolveAgent(reportedName);
+      const exactAgentName = nonempty(agent.name) ? agent.name : reportedName;
+      if (!nonempty(agent.id)) {
+        throw new NodeSpawnError('The spawned agent identity could not be resolved exactly', 'spawn_identity_mismatch');
+      }
+      cleanup = {
+        id: confirmation.invocationId,
+        nodeId,
+        nodeName,
+        name: exactAgentName,
+        agentId: agent.id,
+      };
+      if (exactAgentName !== reportedName || (nonempty(output.agent_id) && output.agent_id !== agent.id)) {
+        throw new NodeSpawnError('The spawned agent identity could not be resolved exactly',
+          'spawn_identity_mismatch', undefined, cleanup);
+      }
+    }
     if (!confirmation || confirmation.status.toLowerCase() !== 'completed'
       || output?.spawned !== true || output.ready !== true) {
-      throw new NodeSpawnError('The fleet node did not prove a ready spawned agent', 'spawn_unconfirmed');
+      throw new NodeSpawnError('The fleet node did not prove a ready spawned agent',
+        'spawn_unconfirmed', undefined, cleanup);
     }
-    if (output.warning === 'spawn_task_unconfirmed'
-      || (isRecord(output.warning) && output.warning.code === 'spawn_task_unconfirmed')) {
-      throw new NodeSpawnError('The fleet node could not confirm initial task delivery', 'spawn_task_unconfirmed');
+    if (!cleanup) {
+      throw new NodeSpawnError('The spawn result did not identify its exact agent and node', 'spawn_identity_unavailable');
     }
-    const reportedName = nonempty(output.name) ? output.name : request.name;
-    if (reportedName !== request.name) throw new NodeSpawnError('The spawn result named a different agent', 'spawn_identity_mismatch');
-    const agent = await this.resolveAgent(request.name);
-    if (agent.name !== request.name || !nonempty(agent.id)
-      || (nonempty(output.agent_id) && output.agent_id !== agent.id)) {
-      throw new NodeSpawnError('The spawned agent identity could not be resolved exactly', 'spawn_identity_mismatch');
+    if (ack.placement.confirmed !== true) {
+      throw new NodeSpawnError('The fleet placement was not confirmed',
+        'spawn_placement_unconfirmed', undefined, cleanup);
     }
-    const nodeName = ack.node?.name ?? ack.placement.node;
-    if (!nodeName) throw new NodeSpawnError('The spawn result did not identify its node', 'spawn_node_unconfirmed');
-    const nodeId = ack.node?.nodeId ?? ack.node?.id
-      ?? confirmation.dispatchedNodeId ?? confirmation.handlerNodeId ?? undefined;
+    if (taskUnconfirmed) {
+      throw new NodeSpawnError('The fleet node could not confirm initial task delivery',
+        'spawn_task_unconfirmed', undefined, cleanup);
+    }
+    if (reportedName !== request.name) {
+      throw new NodeSpawnError('The spawn result named a different agent',
+        'spawn_identity_mismatch', undefined, cleanup);
+    }
     return {
-      id: confirmation.invocationId,
+      ...cleanup,
       action: 'spawn',
       status: 'completed',
-      nodeId,
-      nodeName,
-      name: request.name,
-      agentId: agent.id,
       spawned: true,
       ready: true,
       taskUnconfirmed: false,
@@ -143,6 +170,18 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
     }
     throw new NodeSpawnError('The ready agent was not visible in the Relay roster', 'spawn_identity_unavailable', last);
   }
+
+  private async resolveNodeName(id: string): Promise<string | undefined> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        const nodes = await this.client.nodes.list();
+        const name = nodes.find(node => (node.nodeId ?? node.id) === id)?.name;
+        if (name) return name;
+      } catch { /* Roster convergence is retried within the confirmation budget. */ }
+      if (attempt < 9) await delay(250);
+    }
+    return undefined;
+  }
 }
 
 function mapInvocation(action: NodeSpawnAction, value: RelayInvocation): NodeSpawnInvocation {
@@ -151,21 +190,14 @@ function mapInvocation(action: NodeSpawnAction, value: RelayInvocation): NodeSpa
   return {
     id: value.invocationId,
     action,
-    status: normalizeStatus(status),
+    status: normalizeNodeSpawnStatus(status),
     nodeId: value.dispatchedNodeId ?? value.handlerNodeId ?? undefined,
     name: nonempty(output?.name) ? output.name : undefined,
     spawned: output?.spawned === true,
     ready: output?.ready === true,
     released: output?.released === true,
-    taskUnconfirmed: output?.warning === 'spawn_task_unconfirmed',
+    taskUnconfirmed: output?.warning === 'spawn_task_unconfirmed'
+      || (isRecord(output?.warning) && output.warning.code === 'spawn_task_unconfirmed'),
     errorCode: value.error?.split(':', 1)[0]?.trim() || undefined,
   };
-}
-
-function normalizeStatus(status: string): NodeSpawnInvocation['status'] {
-  if (status === 'completed') return 'completed';
-  if (terminalStatus(status)) return 'failed';
-  if (status === 'running') return 'running';
-  if (status === 'dispatched') return 'dispatched';
-  return 'pending';
 }

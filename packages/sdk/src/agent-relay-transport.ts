@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { claimNodeSpawn, recordNodeSpawn, type NodeSpawnClaim } from './node-spawn-state.js';
 import { nodeResultInstruction, waitForNodeResult } from './node-spawn-result.js';
 import { createRemoteNodeSpawnRuntime, type NodeSpawnRuntime } from './node-spawn-runtime.js';
-import { NodeSpawnError, nonempty, validIdempotencyKey } from './node-spawn.js';
+import { NodeSpawnError, nonempty, validIdempotencyKey,
+  type NodeSpawnIdentity, type NodeSpawnReceipt } from './node-spawn.js';
 import type { RelayTaskResult } from './agent-relay-receipt.js';
 
 export type AgentTransport = 'direct' | 'relay';
@@ -33,6 +34,8 @@ export class AgentRelayTransportError extends Error {
   }
 }
 
+const RESULT_RECOVERY_WINDOW_MS = 30_000;
+
 export function readAgentRelayEnv(env: NodeJS.ProcessEnv = process.env): Required<Pick<AgentRelayEnv, 'baseUrl' | 'agentToken'>> {
   const agentToken = env.RELAY_AGENT_TOKEN?.trim();
   if (!agentToken) throw new AgentRelayTransportError(
@@ -49,6 +52,7 @@ export async function runAgentRelayTask(
   request: AgentRelayTaskRequest,
   options: AgentRelayEnv & { runtime?: NodeSpawnRuntime; signal?: AbortSignal } = {},
 ): Promise<RelayTaskResult> {
+  const taskStartedAt = Date.now();
   options.signal?.throwIfAborted();
   const timeoutMs = request.timeoutMs ?? 86_400_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 86_400_000
@@ -88,37 +92,73 @@ export async function runAgentRelayTask(
       ...(runtime.repo === undefined ? {} : { repo: runtime.repo }),
       ...(runtime.sandboxOnly === undefined ? {} : { sandbox_only: runtime.sandboxOnly }),
     },
-    startedAt: Date.now(),
+    startedAt: taskStartedAt,
   };
   const claimed = await claimNodeSpawn(request.dataDir, proposed);
   let claim = claimed.claim;
-  if (!claimed.created && claim.spawn === undefined) {
-    throw new AgentRelayTransportError(
-      'A prior node-spawn dispatch ended in the ambiguous pre-ack window; refusing a second spawn');
-  }
+  let releaseAttempted = false;
+  const deadline = claim.startedAt + timeoutMs;
   try {
+    if (!claimed.created && claim.spawn === undefined) {
+      if (claim.cleanup === undefined) {
+        throw new AgentRelayTransportError(
+          'A prior node-spawn dispatch ended in the ambiguous pre-ack window; refusing a second spawn');
+      }
+      if (claim.release === undefined) {
+        releaseAttempted = true;
+        const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+        claim = cleanup.claim;
+        if (cleanup.error !== undefined) throw cleanup.error;
+      }
+      throw new NodeSpawnError(claim.failure?.message ?? 'The prior node spawn failed after launch',
+        claim.failure?.code ?? 'spawn_unconfirmed');
+    }
+    assertWithinDeadline(claim.result === undefined ? deadline : deadline + RESULT_RECOVERY_WINDOW_MS);
+    options.signal?.throwIfAborted();
     if (claim.spawn === undefined) {
-      const spawn = await runtime.port.spawn({
+      // This is deliberately adjacent to the irreversible dispatch. Runtime
+      // setup and durable claiming can take time or lose the worker lease.
+      options.signal?.throwIfAborted();
+      const remaining = remainingDeadline(deadline);
+      const pendingSpawn = runtime.port.spawn({
         name: agentName,
         harness: request.cli,
         task,
-        model: request.model,
-        directory: request.worker_cwd,
+        ...(request.model === undefined ? {} : { model: request.model }),
+        ...(request.worker_cwd === undefined ? {} : { directory: request.worker_cwd }),
         idempotencyKey: request.idempotencyKey,
-        node: runtime.node,
-        repo: runtime.repo,
-        sandboxOnly: runtime.sandboxOnly,
-        timeoutMs: Math.min(timeoutMs + 30_000, 86_430_000),
+        ...(runtime.node === undefined ? {} : { node: runtime.node }),
+        ...(runtime.repo === undefined ? {} : { repo: runtime.repo }),
+        ...(runtime.sandboxOnly === undefined ? {} : { sandboxOnly: runtime.sandboxOnly }),
+        timeoutMs: remaining,
+      });
+      const spawnTimeout = AbortSignal.timeout(remaining);
+      const spawnSignal = options.signal === undefined
+        ? spawnTimeout : AbortSignal.any([options.signal, spawnTimeout]);
+      const spawn = await waitForSpawn(pendingSpawn, spawnSignal, outcome => {
+        void settleLateSpawn(outcome).catch(() => undefined);
       });
       claim = { ...claim, spawn };
       await recordNodeSpawn(claimed.path, claim);
+      options.signal?.throwIfAborted();
     } else {
       const status = await runtime.port.status('spawn', claim.spawn.id);
-      if (status.status === 'failed') throw new NodeSpawnError('The recorded node spawn failed', status.errorCode);
+      if (status.status !== 'completed') {
+        throw new NodeSpawnError('The recorded node spawn is no longer completed',
+          status.errorCode ?? `spawn_${status.status}`);
+      }
     }
     const spawn = claim.spawn;
     if (spawn === undefined) throw new AgentRelayTransportError('Node-spawn claim lost its confirmed receipt');
-    const timeout = AbortSignal.timeout(timeoutMs);
+    if (claim.result !== undefined && claim.release === undefined) {
+      releaseAttempted = true;
+      const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+      claim = cleanup.claim;
+      if (cleanup.error !== undefined) throw cleanup.error;
+    }
+    const waitDeadline = claim.result === undefined ? deadline : deadline + RESULT_RECOVERY_WINDOW_MS;
+    assertWithinDeadline(waitDeadline);
+    const timeout = AbortSignal.timeout(remainingDeadline(waitDeadline));
     const signal = options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout]);
     const delivery = await waitForNodeResult(runtime.inbox, {
       agentId: spawn.agentId,
@@ -126,20 +166,25 @@ export async function runAgentRelayTask(
       ...correlation,
     }, signal);
     signal.throwIfAborted();
-    let releaseError: unknown;
+    if (claim.result !== undefined
+      && (claim.result.inboxItemId !== delivery.inboxItemId || claim.result.messageId !== delivery.messageId)) {
+      throw new NodeSpawnError('The redelivered result did not match the durable delivery identity',
+        'result_identity_mismatch');
+    }
+    if (claim.result === undefined) {
+      claim = { ...claim, result: { inboxItemId: delivery.inboxItemId,
+        messageId: delivery.messageId, status: delivery.envelope.status, receivedAt: Date.now() } };
+      await recordNodeSpawn(claimed.path, claim);
+    }
     if (claim.release === undefined) {
-      try {
-        const released = await runtime.port.release({ receipt: spawn,
-          idempotencyKey: releaseKey(request.idempotencyKey) });
-        claim = { ...claim, release: { invocationId: released.id, status: released.status } };
-        await recordNodeSpawn(claimed.path, claim);
-      } catch (error) { releaseError = error; }
+      releaseAttempted = true;
+      const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+      claim = cleanup.claim;
+      if (cleanup.error !== undefined) throw cleanup.error;
     }
     signal.throwIfAborted();
     const envelope = delivery.envelope;
-    const error = releaseError === undefined
-      ? envelope.status === 'failed' ? envelope.error! : null
-      : `Spawned agent release was not confirmed: ${safeError(releaseError)}`;
+    const error = envelope.status === 'failed' ? envelope.error! : null;
     const status = error === null ? 'completed' : 'failed';
     return {
       spawn,
@@ -170,17 +215,106 @@ export async function runAgentRelayTask(
       },
     };
   } catch (error) {
-    if (claim.spawn !== undefined && claim.release === undefined) {
-      try {
-        const released = await runtime.port.release({ receipt: claim.spawn,
-          idempotencyKey: releaseKey(request.idempotencyKey) });
-        claim = { ...claim, release: { invocationId: released.id, status: released.status } };
-        await recordNodeSpawn(claimed.path, claim);
-      } catch { /* Durable claim retains exact cleanup identity for audit/recovery. */ }
+    let cleanupError: unknown;
+    if (error instanceof NodeSpawnError && error.cleanup !== undefined && claim.spawn === undefined) {
+      claim = { ...claim, cleanup: error.cleanup,
+        failure: { code: error.code, message: error.message } };
+      try { await recordNodeSpawn(claimed.path, claim); }
+      catch (stateError) { cleanupError = stateError; }
+    }
+    if ((claim.spawn !== undefined || claim.cleanup !== undefined)
+      && claim.release === undefined && !releaseAttempted) {
+      releaseAttempted = true;
+      const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+      claim = cleanup.claim;
+      cleanupError ??= cleanup.error;
     }
     options.signal?.throwIfAborted();
-    throw new AgentRelayTransportError(safeError(error), error);
+    const detail = cleanupError === undefined
+      ? safeError(error)
+      : `${safeError(error)}; exact cleanup remains pending: ${safeError(cleanupError)}`;
+    throw new AgentRelayTransportError(detail, error);
   }
+
+  async function settleLateSpawn(outcome: { spawn?: NodeSpawnReceipt; error?: unknown }): Promise<void> {
+    if (outcome.spawn !== undefined) {
+      claim = { ...claim, spawn: outcome.spawn };
+    } else if (outcome.error instanceof NodeSpawnError && outcome.error.cleanup !== undefined) {
+      claim = { ...claim, cleanup: outcome.error.cleanup,
+        failure: { code: outcome.error.code, message: outcome.error.message } };
+    } else {
+      return;
+    }
+    try { await recordNodeSpawn(claimed.path, claim); }
+    catch { /* Exact in-memory identity is still sufficient for this cleanup attempt. */ }
+    const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+    claim = cleanup.claim;
+  }
+}
+
+async function waitForSpawn(
+  pending: Promise<NodeSpawnReceipt>,
+  signal: AbortSignal,
+  onLate: (outcome: { spawn?: NodeSpawnReceipt; error?: unknown }) => void,
+): Promise<NodeSpawnReceipt> {
+  signal.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try { return await Promise.race([pending, aborted]); }
+  catch (error) {
+    if (signal.aborted) {
+      void pending.then(spawn => onLate({ spawn }), lateError => onLate({ error: lateError }));
+    }
+    throw error;
+  } finally {
+    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort);
+  }
+}
+
+async function tryRelease(
+  runtime: NodeSpawnRuntime,
+  path: string,
+  claim: NodeSpawnClaim,
+  idempotencyKey: string,
+): Promise<{ claim: NodeSpawnClaim; error?: unknown }> {
+  const receipt: NodeSpawnIdentity | undefined = claim.spawn ?? claim.cleanup;
+  if (receipt === undefined || claim.release !== undefined) return { claim };
+  try {
+    const released = await runtime.port.release({ receipt,
+      idempotencyKey: releaseKey(idempotencyKey) });
+    const { cleanupPending: _cleanupPending, ...withoutPending } = claim;
+    const updated: NodeSpawnClaim = { ...withoutPending,
+      release: { invocationId: released.id, status: released.status } };
+    await recordNodeSpawn(path, updated);
+    return { claim: updated };
+  } catch (error) {
+    const updated: NodeSpawnClaim = { ...claim, cleanupPending: {
+      attempts: (claim.cleanupPending?.attempts ?? 0) + 1,
+      lastError: safeError(error),
+      updatedAt: Date.now(),
+    } };
+    try { await recordNodeSpawn(path, updated); }
+    catch (stateError) {
+      return { claim: updated,
+        error: new AgentRelayTransportError(`${safeError(error)}; cleanup state was not durable: ${safeError(stateError)}`, error) };
+    }
+    return { claim: updated, error };
+  }
+}
+
+function remainingDeadline(deadline: number): number {
+  const remaining = deadline - Date.now();
+  if (!Number.isSafeInteger(remaining) || remaining < 1) {
+    throw new NodeSpawnError('The node-spawn task deadline elapsed', 'task_timeout');
+  }
+  return remaining;
+}
+
+function assertWithinDeadline(deadline: number): void {
+  remainingDeadline(deadline);
 }
 
 function stableAgentName(request: AgentRelayTaskRequest): string {
