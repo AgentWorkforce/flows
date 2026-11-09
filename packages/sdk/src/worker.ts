@@ -169,14 +169,17 @@ export class AgentWorker extends EventEmitter {
   private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
     if (this.closing) return;
     if (dispatch.step_type !== 'agent') return;
-    const relayTransport = (dispatch.spec as Partial<ResolvedKernelAgentStep>).transport === 'relay';
     const running: Promise<void> = this.execute(dispatch).catch((error: unknown) => {
       this.emit('error', error, dispatch);
     });
     this.inFlight.add(running);
     void running.finally(() => {
       this.inFlight.delete(running);
-      if (relayTransport) {
+      // A task's own ack settles its durable outbox entry after stepComplete.
+      // Reconcile only after the dispatch drain: scanning while another relay
+      // task is between its journal append and ack can race that task's own
+      // settlement and issue the same inbox operation twice.
+      if (this.inFlight.size === 0) {
         void this.reconcileRelaySettlements().catch(error => this.emit('error', error));
       }
     });
