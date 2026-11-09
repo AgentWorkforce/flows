@@ -12,7 +12,7 @@ import { agentCompletionReason } from './cli-transport-evidence.js';
 import { agentStepCwd } from './agent-cwd.js';
 import { resolveCliModel } from './cli-adapter.js';
 import { withWorkerLease } from './worker-lease.js';
-import { workerInstruction } from './worker-input.js';
+import { workerInstruction, workerInstructionIdentity } from './worker-input.js';
 import { helperCall } from './yaml-helpers.js';
 import { completeHelperDispatch } from './yaml-helper-effect.js';
 import {
@@ -260,7 +260,8 @@ export class AgentWorker extends EventEmitter {
             : (spec.transport === 'relay' ? undefined : this.options.runRoot)),
             spec.transport === 'relay' ? 'relay' : 'direct',
             { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
-              attempt: dispatch.attempt, dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema,
+              attempt: dispatch.attempt, taskIdentity: workerInstructionIdentity(spec.instruction, dispatch),
+              dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema,
               nodeSpawnRuntime: this.options.nodeSpawnRuntime,
               nodeSpawnRuntimeProvider: signal => this.nodeSpawnRuntimeOwner.get(signal) },
             this.options.environment, spec.cli_identity, spec.timeout_ms, spec.resume, spec.secrets,

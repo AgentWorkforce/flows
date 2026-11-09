@@ -121,7 +121,12 @@ function sameClaim(prior: NodeSpawnClaim, proposed: NodeSpawnClaim): boolean {
     release: _priorRelease, ...priorIdentity } = prior;
   const { spawn: _spawn, cleanup: _cleanup, failure: _failure, result: _result,
     cleanupPending: _cleanupPending, release: _release, ...proposedIdentity } = proposed;
-  return canonicalize({ ...priorIdentity, startedAt: proposed.startedAt }) === canonicalize(proposedIdentity);
+  const { task: _priorRenderedTask, ...priorRequestIdentity } = priorIdentity.request;
+  const { task: _renderedTask, ...proposedRequestIdentity } = proposedIdentity.request;
+  return canonicalize({ ...priorIdentity, request: priorRequestIdentity,
+    startedAt: proposed.startedAt }) === canonicalize({
+    ...proposedIdentity, request: proposedRequestIdentity,
+  });
 }
 
 function decodeNodeSpawnClaim(value: unknown, label: string): NodeSpawnClaim {
@@ -133,6 +138,7 @@ function decodeNodeSpawnClaim(value: unknown, label: string): NodeSpawnClaim {
     || !validIdempotencyKey(record.idempotencyKey)
     || !positiveInteger(record.timeoutMs) || record.timeoutMs > 86_400_000
     || !isRecord(record.request)
+    || ![record.request.cli, record.request.task, record.request.task_identity].every(nonempty)
     || !safeTime(record.startedAt)) invalid();
   const claim = record as unknown as NodeSpawnClaim;
   if (record.spawn !== undefined && !validNodeSpawnReceipt(record.spawn)) invalid();

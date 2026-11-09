@@ -20,6 +20,8 @@ interface LiveTeardownGroup {
   settlementToken?: object;
 }
 
+type Reconciliation = 'complete' | 'pending' | 'foreign';
+
 /** Process-generation state keyed by durable claim path; a real restart intentionally resets it. */
 const liveTeardowns = new Map<string, LiveTeardownGroup>();
 const settlementMutations = new Map<string, Promise<void>>();
@@ -171,8 +173,9 @@ export async function reconcileNodeResultSettlements(
 ): Promise<number> {
   let pending = 0;
   for (const entry of await readNodeSpawnClaims(dataDir)) {
-    if (await serializeSettlementMutation(entry.path,
-      () => reconcileNodeResultSettlement(entry.path, runtime, journal))) pending += 1;
+    const status = await serializeSettlementMutation(entry.path,
+      () => reconcileNodeResultSettlement(entry.path, runtime, journal));
+    if (status === 'pending') pending += 1;
   }
   return pending;
 }
@@ -181,25 +184,24 @@ async function reconcileNodeResultSettlement(
   path: string,
   runtime: NodeSpawnRuntime,
   journal: Pick<JournalClient, 'journalRead'>,
-): Promise<boolean> {
+): Promise<Reconciliation> {
   const claim = await readNodeSpawnClaim(path);
   const result = claim.result;
   const settlement = result?.settlement;
-  if (result === undefined || settlement === undefined || settlement.settledAt !== undefined) return false;
+  if (result === undefined || settlement === undefined || settlement.settledAt !== undefined) return 'complete';
   if (claim.baseUrl !== runtime.baseUrl
     || claim.publisherId !== runtime.publisher.id
     || claim.publisherName !== runtime.publisher.name) {
-    throw new NodeSpawnError('Pending node-result settlement belongs to a different publisher identity',
-      'publisher_identity_mismatch');
+    return 'foreign';
   }
   const live = liveTeardowns.get(path);
   if (live !== undefined) {
     const failed = [...live.barriers].find(item => item.settled && item.failure !== undefined);
     if (failed !== undefined) throw failed.failure;
-    if (live.settlementToken !== undefined || [...live.barriers].some(item => !item.settled)) return true;
+    if (live.settlementToken !== undefined || [...live.barriers].some(item => !item.settled)) return 'pending';
   }
   const terminal = await terminalEntry(journal, claim.runId, claim.stepId, settlement.attempt);
-  if (terminal === undefined) return true;
+  if (terminal === undefined) return 'pending';
   const exact = terminalMatchesResult(terminal, claim, settlement, result);
   const action = exact ? result.settlementAction : 'fail';
   const error = exact ? (result.envelope.error ?? 'Relayflows rejected an invalid result')
@@ -216,7 +218,7 @@ async function reconcileNodeResultSettlement(
     throw writeError;
   }
   completeLiveSettlement(path, liveSettlement);
-  return false;
+  return 'complete';
 }
 
 function rememberLiveTeardown(

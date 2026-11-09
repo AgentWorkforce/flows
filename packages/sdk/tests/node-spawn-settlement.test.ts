@@ -453,6 +453,38 @@ describe('durable node-result settlement', () => {
     await worker.close();
   });
 
+  it('skips a foreign pending settlement without blocking or rearming this runtime', async () => {
+    const dataDir = await dataDirectory('flows-node-settlement-foreign-');
+    const f = fixture();
+    const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    const [own] = await readNodeSpawnClaims(dataDir);
+    const foreignPath = join(dataDir, 'node-spawns', `${'0'.repeat(64)}.json`);
+    await recordNodeSpawn(foreignPath, {
+      ...own!.claim,
+      publisherId: 'publisher_foreign',
+      publisherName: 'foreign-publisher',
+    });
+    const journal = { journalRead: vi.fn(async () => ({ entries: [terminalEntry()] })) };
+
+    await expect(reconcileNodeResultSettlements(dataDir, f.runtime, journal)).resolves.toBe(0);
+    expect(f.ack).toHaveBeenCalledOnce();
+    const afterOwn = await readNodeSpawnClaims(dataDir);
+    expect(afterOwn.find(entry => entry.claim.publisherId === 'publisher_1')!
+      .claim.result?.settlement).toMatchObject({ settledAs: 'ack' });
+    expect(afterOwn.find(entry => entry.claim.publisherId === 'publisher_foreign')!
+      .claim.result?.settlement?.settledAt).toBeUndefined();
+
+    const foreignAck = vi.fn(async () => ({}));
+    const foreignRuntime: NodeSpawnRuntime = {
+      ...f.runtime,
+      publisher: { id: 'publisher_foreign', name: 'foreign-publisher' },
+      inbox: { inbox: { ...f.runtime.inbox.inbox, ack: foreignAck } },
+    };
+    await expect(reconcileNodeResultSettlements(dataDir, foreignRuntime, journal)).resolves.toBe(0);
+    expect(foreignAck).toHaveBeenCalledOnce();
+  });
+
   it('finds a terminal relay result beyond the first journal page before acknowledging', async () => {
     const dataDir = await dataDirectory('flows-node-settlement-paged-');
     const f = fixture();

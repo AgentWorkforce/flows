@@ -103,6 +103,27 @@ describe('native node-spawn task transport', () => {
     expect(recovered.receipt.status).toBe('completed');
   });
 
+  it('replays across changed recovery text while stable task identity remains exact', async () => {
+    const dataDir = await dataDirectory('flows-node-recover-task-identity-');
+    const f = fixture();
+    const initial = { ...request(dataDir), taskIdentity: 'Implement the change' };
+    await runAgentRelayTask(initial, { runtime: f.runtime });
+    const recovered = await runAgentRelayTask({
+      ...initial,
+      task: `${initial.task}\n\nPrevious attempt (journaled):\n${JSON.stringify({
+        completion_reason: 'crashed', trajectory_tail: { note: 'retry' },
+      })}`,
+      attempt: 2,
+    }, { runtime: f.runtime });
+    expect(recovered.receipt.status).toBe('completed');
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
+
+    await expect(runAgentRelayTask({
+      ...initial, taskIdentity: 'A different authored task', attempt: 2,
+    }, { runtime: f.runtime })).rejects.toThrow('conflicts with its durable identity or input');
+  });
+
   it('fails closed across an ambiguous pre-ack crash instead of spawning twice', async () => {
     const dataDir = await dataDirectory('flows-node-ambiguous-');
     const f = fixture();

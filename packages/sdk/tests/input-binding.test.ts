@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { compileSpec, compileYaml, kernelToAuthoring, toKernelSpec } from '../src/compile.js';
 import type { FlowSpec } from '../src/spec.js';
 import { preflight } from '../src/preflight.js';
-import { workerInstruction } from '../src/worker-input.js';
+import { workerInstruction, workerInstructionIdentity } from '../src/worker-input.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 
 const schema = {
@@ -84,5 +84,18 @@ steps:
     const prompt = workerInstruction('Task', dispatch);
     expect(prompt).toBe(`Task\n\nMemory context (journaled):\n"memory"\n\ninput:\n${JSON.stringify(input)}`);
     expect(() => workerInstruction('Task', { spec: { input: consumer.input } } as StepDispatchEvent)).toThrow('did not resolve');
+  });
+
+  it('keeps memory and input in task identity while excluding per-attempt recovery evidence', () => {
+    const dispatch = {
+      spec: { input: consumer.input },
+      input: { message: 'stable input' },
+      memory: { pack: 'stable memory' },
+      recovery: { previous_completion_reason: 'crashed', trajectory_tail: { attempt: 1 } },
+    } as unknown as StepDispatchEvent;
+    expect(workerInstruction('Task', dispatch)).toContain('Previous attempt (journaled)');
+    expect(workerInstructionIdentity('Task', dispatch)).toBe(
+      `Task\n\nMemory context (journaled):\n"stable memory"\n\ninput:\n${JSON.stringify(dispatch.input)}`,
+    );
   });
 });

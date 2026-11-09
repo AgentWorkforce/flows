@@ -127,6 +127,8 @@ export interface AgentRelayContext {
   stepId: string;
   idempotencyKey: string;
   attempt: number;
+  /** Authored journal input without per-attempt recovery evidence. */
+  taskIdentity?: string;
   dataDir?: string;
   resultSchema?: unknown;
   nodeSpawnRuntime?: NodeSpawnRuntime;
@@ -412,9 +414,12 @@ async function runViaAgentRelay(
   try {
     if (kind === 'relayflows-wrapper-v1') throw new Error('Relay task transport does not support same-process wrappers.');
     if (!context?.dataDir) throw new Error('Relay task transport requires a durable data directory and journal dispatch identity.');
-    const task = instruction + (wakeContext === undefined ? '' : `\n\nWake context (journaled):\n${JSON.stringify(wakeContext)}`);
+    const wake = wakeContext === undefined ? ''
+      : `\n\nWake context (journaled):\n${JSON.stringify(wakeContext)}`;
+    const task = instruction + wake;
+    const taskIdentity = (context.taskIdentity ?? instruction) + wake;
     const received = await runAgentRelayTask({
-      cli: kind, task, model, worker_cwd, result_schema: context.resultSchema,
+      cli: kind, task, taskIdentity, model, worker_cwd, result_schema: context.resultSchema,
       runId: context.runId, stepId: context.stepId, idempotencyKey: context.idempotencyKey,
       attempt: context.attempt, dataDir: context.dataDir,
       ...(timeoutMs === undefined ? {} : { timeoutMs }),

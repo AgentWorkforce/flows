@@ -14,6 +14,8 @@ export type AgentTransport = 'direct' | 'relay';
 export interface AgentRelayTaskRequest {
   cli: string;
   task: string;
+  /** Stable task input without per-attempt recovery evidence. */
+  taskIdentity?: string;
   model?: string;
   worker_cwd?: string;
   result_schema?: unknown;
@@ -199,7 +201,8 @@ async function executeAgentRelayTask(
     agentName,
     timeoutMs,
     request: {
-      cli: request.cli, task, ...(request.model === undefined ? {} : { model: request.model }),
+      cli: request.cli, task, task_identity: request.taskIdentity ?? request.task,
+      ...(request.model === undefined ? {} : { model: request.model }),
       ...(request.worker_cwd === undefined ? {} : { worker_cwd: request.worker_cwd }),
       ...(runtime.node === undefined ? {} : { node: runtime.node }),
       ...(runtime.repo === undefined ? {} : { repo: runtime.repo }),
