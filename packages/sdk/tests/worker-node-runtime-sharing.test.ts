@@ -139,6 +139,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     await worker.attach();
     const value = dispatch('edit-local-path', 'dispatch_localpath');
     if ('omitModel' in testCase && testCase.omitModel) {
+      value.spec = { ...(value.spec as Record<string, unknown>), cli: 'claude', cli_identity: 'claude' };
       delete (value.spec as { model?: string }).model;
     }
     if (testCase.cwd !== undefined) {

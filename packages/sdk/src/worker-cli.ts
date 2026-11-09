@@ -178,7 +178,14 @@ export async function runAgentCli(
     return { exit_code: null, stdout_tail: '',
       stderr_tail: error instanceof Error ? error.message : 'step secret grant is invalid' };
   }
-  const effectiveModel = resolveCliModel(cliIdentity ?? cli, model);
+  // A relay node owns its harness default. `model === undefined` therefore
+  // has to survive this boundary unchanged: resolving the local adapter's
+  // default here would turn an omitted model into a Desktop placement
+  // override. Direct CLI execution still needs the adapter default for its
+  // invocation, usage and pricing paths.
+  const effectiveModel = transport === 'relay'
+    ? model
+    : resolveCliModel(cliIdentity ?? cli, model);
   const argv0 = cliInvocationArgv0(cli, cliIdentity);
 
   if (resume !== undefined && (mode !== 'agent' || transport === 'relay' || !agentResumable(kind))) {
