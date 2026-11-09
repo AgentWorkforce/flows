@@ -99,6 +99,13 @@ export class AgentWorker extends EventEmitter {
     if (this.closing) throw new Error('agent worker: cannot attach a closed worker (construct a new one)');
     this.client.on('step.dispatch', this.onDispatch);
     try {
+      // An explicit Desktop handoff is fully checkable before this worker is
+      // admitted. Bind and validate it now so a missing, expired or mismatched
+      // caller cannot let earlier deterministic steps run and fail only when
+      // the first Relay dispatch eventually asks for the lazy runtime.
+      // Remote fleet authority stays lazy: a direct-only local worker does not
+      // need to contact Relay merely because RELAY_AGENT_TOKEN is present.
+      if (this.localDesktopAuthority) await this.nodeSpawnRuntimeOwner.get();
       await this.reconcileRelaySettlementsAfterDrain();
       await this.client.workerAttach(
         this.options.workerId,

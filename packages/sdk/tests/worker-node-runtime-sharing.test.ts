@@ -28,6 +28,23 @@ afterEach(async () => {
 });
 
 describe('AgentWorker node-spawn runtime ownership', () => {
+  it('validates an explicit Desktop caller before registering the worker', async () => {
+    const callerFailure = new Error('Desktop caller is expired');
+    owner.get.mockRejectedValue(callerFailure);
+    const workerAttach = vi.fn(async () => ({}));
+    const client = Object.assign(new EventEmitter(), { workerAttach });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_invalid_desktop_caller',
+      pins: {},
+      serviceCallerFile: '/tmp/caller.json',
+    });
+
+    await expect(worker.attach()).rejects.toBe(callerFailure);
+    expect(owner.get).toHaveBeenCalledOnce();
+    expect(workerAttach).not.toHaveBeenCalled();
+    expect(owner.close).toHaveBeenCalledOnce();
+  });
+
   it.each([
     { label: 'Desktop caller', serviceCallerFile: '/tmp/caller.json', authority: undefined,
       provideRuntime: false, expectedDirectory: 'run-root', expectedSpawn: true },

@@ -142,6 +142,8 @@ describe('--service-caller-file', () => {
       ['run', '--service-caller-file', '/tmp/caller.json', 'flow.yaml'],
       ['run', '--cloud', '--local-agent', '--service-caller-file', '/tmp/caller.json', 'flow.yaml'],
       ['check', '--service-caller-file', '/tmp/caller.json', 'flow.yaml'],
+      ['run', '--local-agent', '--service-caller-file', 'relative/caller.json', 'flow.yaml'],
+      ['run', '--local-agent', '--service-caller-file', '/tmp/caller\0.json', 'flow.yaml'],
       ['run', '--local-agent', '--service-caller-file', 'flow.yaml'],
       ['run', '--local-agent', '--service-caller-file', '/tmp/a', '--service-caller-file', '/tmp/b', 'flow.yaml'],
     ]) {

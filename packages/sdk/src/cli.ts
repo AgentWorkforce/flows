@@ -22,6 +22,7 @@ import {
   type CloudMirrorReceipt,
 } from './cli/cloud-mirror-session.js';
 import { realpathSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   checkFlow,
@@ -817,7 +818,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     }
     if (argument === '--service-caller-file') {
       const value = args[++index];
-      if (command === 'check' || serviceCallerFile !== undefined || value === undefined || value.startsWith('-')) return undefined;
+      if (command === 'check' || serviceCallerFile !== undefined || value === undefined
+        || value.startsWith('-') || value.includes('\0') || !isAbsolute(value)) return undefined;
       serviceCallerFile = value;
       continue;
     }

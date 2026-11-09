@@ -75,20 +75,28 @@ cannot turn Relay acknowledgement into fabricated execution truth.
 
 ## Local Desktop bridge
 
-The SDK contains a local `NodeSpawnPort` adapter for the Desktop core's bridge
-v2 methods: `spawn.targets`, `spawn.invoke`, `spawn.status`, and
-`spawn.release`. On Unix it connects to `core.sock`, validates socket
-ownership/mode, performs the `hello` handshake, and requires an explicit
-Desktop-issued caller name and secret on invoke, status, and release. The
-secret is kept in module-private storage rather than on the exported port
-instance. Local node spawn is refused on Windows until Desktop exposes an
-authenticated named-pipe server contract; a bridge-version hello alone is not
-server authentication.
+The SDK contains a local `NodeSpawnPort` adapter for Desktop's schema-v2
+service-caller bridge. The caller is an explicit private `caller.json` path
+supplied with `--service-caller-file`, the SDK `serviceCallerFile` option, or
+`RELAYFLOW_SERVICE_CALLER_FILE`; Flows never scans Desktop's app-data
+directory. Optional `@agent-relay/core-bridge` validates the handoff and local
+socket or named pipe, challenge-authenticates a fresh connection, verifies the
+bound publisher/workspace/node identity, and then calls `spawn.targets`,
+`spawn.invoke`, `spawn.status`, and `spawn.release` without sending a caller
+name or secret. The same authenticated bridge provides the invocation-scoped
+result inbox and its ack/fail/close/disconnect lifecycle.
+
+An explicit caller handoff is bound before the local worker registers with the
+journal, so a missing, expired, malformed, revoked or identity-mismatched file
+cannot admit a run and fail only at its first Relay step. The bridge package
+owns platform-specific socket and Windows named-pipe trust checks; a bridge
+version hello by itself is not authentication.
 The current bridge does not accept model, repository, or sandbox placement
 overrides, so the local adapter refuses those fields instead of dropping them.
 
-It is not selected by the CLI yet. Flows does not borrow another session's
-name and does not invent or provision its caller secret. Local admission stays
-fail-closed until Desktop supplies the service credential path and file shape.
+The CLI selects this adapter only when the caller file is explicit and
+absolute. It is mutually exclusive with `RELAY_AGENT_TOKEN`; Flows does not
+borrow another session's name and does not invent or provision authority.
+Desktop creates, rotates and revokes the private handoff.
 
 See [the migration note](MIGRATION-NODE-SPAWN.md) for removed broker surfaces.
