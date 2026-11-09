@@ -139,11 +139,6 @@ export async function reconcileNodeResultSettlements(
   return pending;
 }
 
-/** A proven owner disconnect makes every invocation connection for that runtime stale. */
-export function clearLiveNodeResultTeardowns(runtime: NodeSpawnRuntime): void {
-  liveTeardowns.delete(runtime);
-}
-
 function rememberLiveTeardown(
   runtime: NodeSpawnRuntime,
   path: string,

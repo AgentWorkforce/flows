@@ -207,9 +207,9 @@ describe('durable node-result settlement', () => {
   });
 
   it.each([
-    { label: 'successful', disconnectFails: false, expectedPending: 0, expectedAcks: 1 },
-    { label: 'failed', disconnectFails: true, expectedPending: 1, expectedAcks: 0 },
-  ])('$label owner disconnect controls whether a live teardown survives', async testCase => {
+    { label: 'successful', disconnectFails: false },
+    { label: 'failed', disconnectFails: true },
+  ])('$label publisher disconnect leaves a separate live inbox teardown blocked', async testCase => {
     const dataDir = await dataDirectory(`flows-node-settlement-owner-${testCase.label}-`);
     const f = fixture();
     const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
@@ -232,9 +232,15 @@ describe('durable node-result settlement', () => {
     const pending = await reconcileNodeResultSettlements(dataDir, f.runtime, {
       journalRead: vi.fn(async () => ({ entries: [terminalEntry()] })),
     });
-    expect(pending).toBe(testCase.expectedPending);
-    expect(f.ack).toHaveBeenCalledTimes(testCase.expectedAcks);
+    expect(pending).toBe(1);
+    expect(f.ack).not.toHaveBeenCalled();
     expect(disconnect).toHaveBeenCalledOnce();
+
+    const freshRuntime = { ...f.runtime } satisfies NodeSpawnRuntime;
+    await expect(reconcileNodeResultSettlements(dataDir, freshRuntime, {
+      journalRead: vi.fn(async () => ({ entries: [terminalEntry()] })),
+    })).resolves.toBe(0);
+    expect(f.ack).toHaveBeenCalledOnce();
     finishTeardown();
     await Promise.resolve();
   });

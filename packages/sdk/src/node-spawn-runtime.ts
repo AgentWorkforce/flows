@@ -12,7 +12,6 @@ import {
 import { NodeSpawnError } from './node-spawn.js';
 import { RemoteNodeSpawnPort, type RemoteNodeSpawnClient } from './node-spawn-remote.js';
 import type { NodeSpawnPort } from './node-spawn.js';
-import { clearLiveNodeResultTeardowns } from './node-spawn-settlement.js';
 
 export interface NodeSpawnPublisher { id: string; name: string }
 export interface NodeSpawnRuntime {
@@ -190,12 +189,7 @@ export function createNodeSpawnRuntimeOwner(
     controller.abort(new Error('Node-spawn runtime owner closed'));
     if (provided !== undefined) return;
     const runtime = await pending?.catch(() => undefined);
-    if (runtime?.disconnect !== undefined) {
-      let disconnected = false;
-      try { await runtime.disconnect(); disconnected = true; }
-      catch { /* Owner shutdown remains best-effort, but live teardown stays fail-closed. */ }
-      if (disconnected) clearLiveNodeResultTeardowns(runtime);
-    }
+    await runtime?.disconnect?.().catch(() => undefined);
   };
   return { get, close: () => closePromise ??= closeOnce() };
 }
