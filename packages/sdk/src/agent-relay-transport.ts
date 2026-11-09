@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { claimNodeSpawn, nodeSpawnClaimPath, recordNodeSpawn,
+import { claimNodeSpawnAtPath, nodeSpawnClaimPath, recordNodeSpawn,
   type NodeSpawnClaim } from './node-spawn-state.js';
 import { nodeResultInstruction, waitForNodeResult } from './node-spawn-result.js';
 import { durableNodeResultDelivery } from './node-spawn-settlement.js';
@@ -75,17 +75,18 @@ export async function runAgentRelayTask(
     || !validIdempotencyKey(request.idempotencyKey)) {
     throw new AgentRelayTransportError('Node-spawn task requires durable dispatch identity and a valid deadline');
   }
-  const claimPath = nodeSpawnClaimPath(
+  const claimPath = await nodeSpawnClaimPath(
     request.dataDir, request.runId, request.stepId, request.idempotencyKey);
   const taskDeadline = taskStartedAt + timeoutMs;
   return serializeClaimExecution(claimPath, taskDeadline, options.signal, async () => {
     options.signal?.throwIfAborted();
-    return runAgentRelayTaskExclusive(request, options, taskStartedAt, timeoutMs);
+    return runAgentRelayTaskExclusive(request, claimPath, options, taskStartedAt, timeoutMs);
   });
 }
 
 async function runAgentRelayTaskExclusive(
   request: AgentRelayTaskRequest,
+  claimPath: string,
   options: AgentRelayEnv & { runtime?: NodeSpawnRuntime;
     runtimeProvider?: (signal?: AbortSignal) => Promise<NodeSpawnRuntime>; signal?: AbortSignal },
   taskStartedAt: number,
@@ -129,7 +130,8 @@ async function runAgentRelayTaskExclusive(
     throw error;
   }
   try {
-    return await executeAgentRelayTask(request, runtime, options.signal, taskStartedAt, timeoutMs);
+    return await executeAgentRelayTask(
+      request, claimPath, runtime, options.signal, taskStartedAt, timeoutMs);
   } finally {
     if (ownsRuntime) await runtime.disconnect?.().catch(() => undefined);
   }
@@ -179,6 +181,7 @@ async function serializeClaimExecution<T>(
 
 async function executeAgentRelayTask(
   request: AgentRelayTaskRequest,
+  claimPath: string,
   runtime: NodeSpawnRuntime,
   signal: AbortSignal | undefined,
   taskStartedAt: number,
@@ -211,7 +214,7 @@ async function executeAgentRelayTask(
     },
     startedAt: taskStartedAt,
   };
-  const claimed = await claimNodeSpawn(request.dataDir, proposed);
+  const claimed = await claimNodeSpawnAtPath(claimPath, proposed);
   let claim = claimed.claim;
   let releaseAttempted = false;
   const deadline = claim.startedAt + claim.timeoutMs;

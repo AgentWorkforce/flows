@@ -1,7 +1,8 @@
 import type { JournalClient } from './journal-client.js';
 import type { JournalEvent } from './journal-reader.js';
 import type { NodeResultDelivery } from './node-spawn-result.js';
-import { readNodeSpawnClaims, recordNodeSpawn, type NodeSpawnClaim } from './node-spawn-state.js';
+import { readNodeSpawnClaim, readNodeSpawnClaims, recordNodeSpawn,
+  type NodeSpawnClaim } from './node-spawn-state.js';
 import type { NodeSpawnRuntime } from './node-spawn-runtime.js';
 import { NodeSpawnError, isRecord } from './node-spawn.js';
 
@@ -21,6 +22,7 @@ interface LiveTeardownGroup {
 
 /** Process-generation state keyed by durable claim path; a real restart intentionally resets it. */
 const liveTeardowns = new Map<string, LiveTeardownGroup>();
+const settlementMutations = new Map<string, Promise<void>>();
 
 export function durableNodeResultDelivery(
   runtime: NodeSpawnRuntime,
@@ -41,27 +43,43 @@ export function durableNodeResultDelivery(
   }
   let claim = initial;
   let settling: Promise<void> | undefined;
-  const settleOnce = async (): Promise<void> => {
-    const current = claim.result;
+  const settleOnce = (): Promise<void> => serializeSettlementMutation(path, async () => {
+    const durable = await loadDurableClaim(path, result);
+    const current = durable.result;
     if (current === undefined) throw new NodeSpawnError('Durable node result disappeared before settlement');
-    if (current.settlement === undefined) {
+    const expected = claim.result?.settlement;
+    if (expected === undefined || current.settlement === undefined) {
       throw new NodeSpawnError('Node result cannot settle before its journal intent is durable',
         'result_settlement_unprepared');
     }
+    if (current.settlement.attempt !== expected.attempt
+      || current.settlement.completionReason !== expected.completionReason) {
+      throw new NodeSpawnError('Node result settlement conflicts with its journal identity',
+        'result_identity_mismatch');
+    }
+    if (current.settlement.settledAt !== undefined) {
+      if (current.settlement.settledAs !== current.settlementAction) {
+        throw new NodeSpawnError('Node result settled with a different inbox action',
+          'result_identity_mismatch');
+      }
+      claim = durable;
+      return;
+    }
     const liveSettlement = await settleAfterLiveTeardowns(runtime, path, current.settlementAction,
       current.inboxItemId, current.envelope.error ?? 'Relayflows rejected an invalid result');
-    claim = { ...claim, result: { ...current, settlement: {
+    const updated: NodeSpawnClaim = { ...durable, result: { ...current, settlement: {
       ...current.settlement,
       settledAt: Date.now(), settledAs: current.settlementAction,
     } } };
     try {
-      await recordNodeSpawn(path, claim);
+      await recordNodeSpawn(path, updated);
     } catch (error) {
       releaseLiveSettlement(path, liveSettlement);
       throw error;
     }
+    claim = updated;
     completeLiveSettlement(path, liveSettlement);
-  };
+  });
   const settle = (): Promise<void> => {
     if (settling !== undefined) return settling;
     const attempt = settleOnce();
@@ -75,8 +93,9 @@ export function durableNodeResultDelivery(
     envelope: result.envelope,
     settlementAction: result.settlementAction,
     ...(observed?.settlementReady === undefined ? {} : { settlementReady: observed.settlementReady }),
-    prepareSettlement: async input => {
-      const current = claim.result;
+    prepareSettlement: input => serializeSettlementMutation(path, async () => {
+      const durable = await loadDurableClaim(path, result);
+      const current = durable.result;
       if (current === undefined) throw new NodeSpawnError('Durable node result disappeared before settlement');
       const prior = current.settlement;
       if (prior !== undefined && prior.completionReason !== input.completionReason) {
@@ -87,20 +106,61 @@ export function durableNodeResultDelivery(
         throw new NodeSpawnError('A settled node result cannot move to a different journal attempt',
           'result_identity_mismatch');
       }
+      if (prior?.settledAt !== undefined && prior.settledAs !== current.settlementAction) {
+        throw new NodeSpawnError('Node result settled with a different inbox action',
+          'result_identity_mismatch');
+      }
       if (prior !== undefined && input.attempt < prior.attempt) {
         throw new NodeSpawnError('Node result settlement cannot move back to an older journal attempt',
           'result_identity_mismatch');
       }
-      claim = { ...claim, result: { ...current, settlement:
+      if (prior !== undefined && prior.attempt === input.attempt) {
+        claim = durable;
+        return;
+      }
+      const updated: NodeSpawnClaim = { ...durable, result: { ...current, settlement:
         prior !== undefined && prior.attempt === input.attempt ? prior : {
           attempt: input.attempt,
           completionReason: input.completionReason,
           preparedAt: Date.now(),
         } } };
-      await recordNodeSpawn(path, claim);
-    },
+      await recordNodeSpawn(path, updated);
+      claim = updated;
+    }),
     ack: settle,
   };
+}
+
+async function loadDurableClaim(
+  path: string,
+  expected: NonNullable<NodeSpawnClaim['result']>,
+): Promise<NodeSpawnClaim> {
+  const durable = await readNodeSpawnClaim(path);
+  const current = durable.result;
+  if (current === undefined
+    || current.inboxItemId !== expected.inboxItemId
+    || current.messageId !== expected.messageId
+    || current.status !== expected.status
+    || current.settlementAction !== expected.settlementAction) {
+    throw new NodeSpawnError('Durable node result differs from its delivery identity',
+      'result_identity_mismatch');
+  }
+  return durable;
+}
+
+async function serializeSettlementMutation<T>(path: string, mutate: () => Promise<T>): Promise<T> {
+  const prior = settlementMutations.get(path) ?? Promise.resolve();
+  let release!: () => void;
+  const occupied = new Promise<void>(resolve => { release = resolve; });
+  const queued = prior.then(() => occupied, () => occupied);
+  settlementMutations.set(path, queued);
+  await prior.catch(() => undefined);
+  try {
+    return await mutate();
+  } finally {
+    release();
+    if (settlementMutations.get(path) === queued) settlementMutations.delete(path);
+  }
 }
 
 /** Reconciles journaled result settlements left by a crash or failed inbox call. */
@@ -111,44 +171,52 @@ export async function reconcileNodeResultSettlements(
 ): Promise<number> {
   let pending = 0;
   for (const entry of await readNodeSpawnClaims(dataDir)) {
-    const result = entry.claim.result;
-    const settlement = result?.settlement;
-    if (result === undefined || settlement === undefined || settlement.settledAt !== undefined) continue;
-    if (entry.claim.baseUrl !== runtime.baseUrl
-      || entry.claim.publisherId !== runtime.publisher.id
-      || entry.claim.publisherName !== runtime.publisher.name) {
-      throw new NodeSpawnError('Pending node-result settlement belongs to a different publisher identity',
-        'publisher_identity_mismatch');
-    }
-    const live = liveTeardowns.get(entry.path);
-    if (live !== undefined) {
-      const failed = [...live.barriers].find(item => item.settled && item.failure !== undefined);
-      if (failed !== undefined) throw failed.failure;
-      if (live.settlementStarted || [...live.barriers].some(item => !item.settled)) {
-        pending += 1;
-        continue;
-      }
-    }
-    const terminal = await terminalEntry(journal, entry.claim.runId, entry.claim.stepId, settlement.attempt);
-    if (terminal === undefined) { pending += 1; continue; }
-    const exact = terminalMatchesResult(terminal, entry.claim, settlement, result);
-    const action = exact ? result.settlementAction : 'fail';
-    const error = exact ? (result.envelope.error ?? 'Relayflows rejected an invalid result')
-      : 'The journal completed this attempt with a different terminal outcome';
-    const liveSettlement = await settleAfterLiveTeardowns(
-      runtime, entry.path, action, result.inboxItemId, error);
-    const updated: NodeSpawnClaim = { ...entry.claim, result: { ...result, settlement: {
-      ...settlement, settledAt: Date.now(), settledAs: action,
-    } } };
-    try {
-      await recordNodeSpawn(entry.path, updated);
-    } catch (error) {
-      releaseLiveSettlement(entry.path, liveSettlement);
-      throw error;
-    }
-    completeLiveSettlement(entry.path, liveSettlement);
+    if (await serializeSettlementMutation(entry.path,
+      () => reconcileNodeResultSettlement(entry.path, runtime, journal))) pending += 1;
   }
   return pending;
+}
+
+async function reconcileNodeResultSettlement(
+  path: string,
+  runtime: NodeSpawnRuntime,
+  journal: Pick<JournalClient, 'journalRead'>,
+): Promise<boolean> {
+  const claim = await readNodeSpawnClaim(path);
+  const result = claim.result;
+  const settlement = result?.settlement;
+  if (result === undefined || settlement === undefined || settlement.settledAt !== undefined) return false;
+  if (claim.baseUrl !== runtime.baseUrl
+    || claim.publisherId !== runtime.publisher.id
+    || claim.publisherName !== runtime.publisher.name) {
+    throw new NodeSpawnError('Pending node-result settlement belongs to a different publisher identity',
+      'publisher_identity_mismatch');
+  }
+  const live = liveTeardowns.get(path);
+  if (live !== undefined) {
+    const failed = [...live.barriers].find(item => item.settled && item.failure !== undefined);
+    if (failed !== undefined) throw failed.failure;
+    if (live.settlementStarted || [...live.barriers].some(item => !item.settled)) return true;
+  }
+  const terminal = await terminalEntry(journal, claim.runId, claim.stepId, settlement.attempt);
+  if (terminal === undefined) return true;
+  const exact = terminalMatchesResult(terminal, claim, settlement, result);
+  const action = exact ? result.settlementAction : 'fail';
+  const error = exact ? (result.envelope.error ?? 'Relayflows rejected an invalid result')
+    : 'The journal completed this attempt with a different terminal outcome';
+  const liveSettlement = await settleAfterLiveTeardowns(
+    runtime, path, action, result.inboxItemId, error);
+  const updated: NodeSpawnClaim = { ...claim, result: { ...result, settlement: {
+    ...settlement, settledAt: Date.now(), settledAs: action,
+  } } };
+  try {
+    await recordNodeSpawn(path, updated);
+  } catch (writeError) {
+    releaseLiveSettlement(path, liveSettlement);
+    throw writeError;
+  }
+  completeLiveSettlement(path, liveSettlement);
+  return false;
 }
 
 function rememberLiveTeardown(
@@ -212,6 +280,7 @@ async function settleAfterLiveTeardowns(
       current.settlementStarted = true;
       try {
         await issueInboxSettlement(runtime, action, inboxItemId, error);
+        signal.throwIfAborted();
         return { group: current, generation };
       } catch (settlementError) {
         current.settlementStarted = false;

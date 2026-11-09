@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { link, mkdir, open, readFile, readdir, rename, unlink } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { link, mkdir, open, readFile, readdir, realpath, rename, unlink } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { canonicalize } from './canonical.js';
 import { readNodeResult, type NodeResultEnvelope } from './node-spawn-result.js';
 import { isRecord, nonempty, validIdempotencyKey, validNodeSpawnIdentity, validNodeSpawnReceipt,
@@ -32,12 +32,18 @@ export interface NodeSpawnClaim {
 export async function claimNodeSpawn(dataDir: string, proposed: NodeSpawnClaim): Promise<{
   claim: NodeSpawnClaim; created: boolean; path: string;
 }> {
-  const directory = join(dataDir, 'node-spawns');
-  await mkdir(directory, { recursive: true });
-  await syncDirectory(dataDir);
-  const path = nodeSpawnClaimPath(
+  const path = await nodeSpawnClaimPath(
     dataDir, proposed.runId, proposed.stepId, proposed.idempotencyKey);
-  const digest = path.slice(directory.length + 1, -'.json'.length);
+  return claimNodeSpawnAtPath(path, proposed);
+}
+
+export async function claimNodeSpawnAtPath(path: string, proposed: NodeSpawnClaim): Promise<{
+  claim: NodeSpawnClaim; created: boolean; path: string;
+}> {
+  const directory = dirname(path);
+  await mkdir(directory, { recursive: true });
+  await syncDirectory(dirname(directory));
+  const digest = basename(path, '.json');
   const temporary = join(directory, `.${digest}.${randomUUID()}.tmp`);
   const file = await open(temporary, 'wx', 0o600);
   try { await file.writeFile(canonicalize(proposed)); await file.sync(); }
@@ -58,16 +64,18 @@ export async function claimNodeSpawn(dataDir: string, proposed: NodeSpawnClaim):
   }
 }
 
-export function nodeSpawnClaimPath(
+export async function nodeSpawnClaimPath(
   dataDir: string,
   runId: string,
   stepId: string,
   idempotencyKey: string,
-): string {
+): Promise<string> {
+  await mkdir(dataDir, { recursive: true });
+  const canonicalDataDir = await realpath(dataDir);
   const digest = createHash('sha256')
     .update(canonicalize([runId, stepId, idempotencyKey]))
     .digest('hex');
-  return join(dataDir, 'node-spawns', `${digest}.json`);
+  return join(canonicalDataDir, 'node-spawns', `${digest}.json`);
 }
 
 export async function recordNodeSpawn(path: string, claim: NodeSpawnClaim): Promise<void> {
@@ -80,7 +88,13 @@ export async function recordNodeSpawn(path: string, claim: NodeSpawnClaim): Prom
 }
 
 export async function readNodeSpawnClaims(dataDir: string): Promise<Array<{ path: string; claim: NodeSpawnClaim }>> {
-  const directory = join(dataDir, 'node-spawns');
+  let canonicalDataDir: string;
+  try { canonicalDataDir = await realpath(dataDir); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+  const directory = join(canonicalDataDir, 'node-spawns');
   let names: string[];
   try { names = await readdir(directory); }
   catch (error) {
@@ -91,10 +105,14 @@ export async function readNodeSpawnClaims(dataDir: string): Promise<Array<{ path
   for (const name of names.sort()) {
     if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
     const path = join(directory, name);
-    const value = JSON.parse(await readFile(path, 'utf8')) as unknown;
-    claims.push({ path, claim: decodeNodeSpawnClaim(value, name) });
+    claims.push({ path, claim: await readNodeSpawnClaim(path) });
   }
   return claims;
+}
+
+export async function readNodeSpawnClaim(path: string): Promise<NodeSpawnClaim> {
+  const value = JSON.parse(await readFile(path, 'utf8')) as unknown;
+  return decodeNodeSpawnClaim(value, path);
 }
 
 function sameClaim(prior: NodeSpawnClaim, proposed: NodeSpawnClaim): boolean {
