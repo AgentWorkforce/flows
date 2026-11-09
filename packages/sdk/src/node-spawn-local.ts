@@ -16,7 +16,13 @@ import {
 
 /** The structural core-bridge surface Flows consumes. Kept here so the package stays optional. */
 export interface CoreBridgeClient {
-  readonly hello: { methods: string[] };
+  readonly hello: {
+    bridge_version: number;
+    daemon_version: string;
+    pid: number;
+    methods: string[];
+    topics: Array<'status' | 'activity' | 'shutdown' | 'invalidated' | 'notify' | 'sign_in'>;
+  };
   close(): void;
 }
 
@@ -79,6 +85,32 @@ interface CoreInvocation {
   error_code: string | null;
 }
 
+interface CoreSpawnInvokeParams {
+  caller_name?: string;
+  node_id: string;
+  node_name: string;
+  name: string;
+  harness: string;
+  task: string;
+  directory: string;
+  idempotency_key: string;
+}
+
+interface CoreSpawnStatusParams {
+  caller_name?: string;
+  action: NodeSpawnAction;
+  invocation_id: string;
+}
+
+interface CoreSpawnReleaseParams {
+  caller_name?: string;
+  node_id: string;
+  node_name: string;
+  name: string;
+  expected_agent_id: string;
+  idempotency_key: string;
+}
+
 export interface CoreInboxDelivery {
   item_id: string;
   message_id: string;
@@ -107,9 +139,9 @@ export interface CoreBridgeApi {
     relaycast_workspace_id: string;
   }>;
   spawnTargets(client: CoreBridgeClient, options?: { signal?: AbortSignal }): Promise<{ targets: CoreTarget[] }>;
-  spawnInvoke(client: CoreBridgeClient, params: Record<string, unknown>, options?: { signal?: AbortSignal; actionTimeoutMs?: number }): Promise<CoreInvocation>;
-  spawnStatus(client: CoreBridgeClient, params: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<CoreInvocation>;
-  spawnRelease(client: CoreBridgeClient, params: Record<string, unknown>, options?: { signal?: AbortSignal; actionTimeoutMs?: number }): Promise<CoreInvocation>;
+  spawnInvoke(client: CoreBridgeClient, params: CoreSpawnInvokeParams, options?: { signal?: AbortSignal; actionTimeoutMs?: number }): Promise<CoreInvocation>;
+  spawnStatus(client: CoreBridgeClient, params: CoreSpawnStatusParams, options?: { signal?: AbortSignal }): Promise<CoreInvocation>;
+  spawnRelease(client: CoreBridgeClient, params: CoreSpawnReleaseParams, options?: { signal?: AbortSignal; actionTimeoutMs?: number }): Promise<CoreInvocation>;
   serviceCallerInboxOpen(client: CoreBridgeClient, invocationId: string, options?: { signal?: AbortSignal }): Promise<{ iterator_id: string }>;
   serviceCallerInboxNext(client: CoreBridgeClient, iteratorId: string, timeoutMs: number, options?: { signal?: AbortSignal }): Promise<{ delivery: CoreInboxDelivery | null }>;
   serviceCallerInboxAck(client: CoreBridgeClient, itemId: string, options?: { signal?: AbortSignal }): Promise<unknown>;

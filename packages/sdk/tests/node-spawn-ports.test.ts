@@ -12,12 +12,15 @@ interface TestCore {
 }
 
 function localPort(core: TestCore): LocalNodeSpawnPort {
-  const client = { hello: { methods: [] }, close() {} } satisfies CoreBridgeClient;
+  const client = {
+    hello: { bridge_version: 2, daemon_version: 'test', pid: 1, methods: [], topics: [] },
+    close() {},
+  } satisfies CoreBridgeClient;
   const bridge = {
     spawnTargets: () => core.call('spawn.targets'),
-    spawnInvoke: (_client, params) => core.call('spawn.invoke', params),
-    spawnStatus: (_client, params) => core.call('spawn.status', params),
-    spawnRelease: (_client, params) => core.call('spawn.release', params),
+    spawnInvoke: (_client, params) => core.call('spawn.invoke', { ...params }),
+    spawnStatus: (_client, params) => core.call('spawn.status', { ...params }),
+    spawnRelease: (_client, params) => core.call('spawn.release', { ...params }),
   } satisfies Pick<CoreBridgeApi, 'spawnTargets' | 'spawnInvoke' | 'spawnStatus' | 'spawnRelease'>;
   return new LocalNodeSpawnPort(client, bridge, {
     harnesses: ['codex'],

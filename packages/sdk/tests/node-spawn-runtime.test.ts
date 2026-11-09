@@ -192,7 +192,10 @@ describe('Desktop service-caller runtime', () => {
     const close = vi.fn();
     const bridge: CoreBridgeApi = {
       connectCore: vi.fn(async () => {
-        const client = { hello: { methods: [] }, close } satisfies CoreBridgeClient;
+        const client = {
+          hello: { bridge_version: 2, daemon_version: 'test', pid: 1, methods: [], topics: [] },
+          close,
+        } satisfies CoreBridgeClient;
         clients.push(client);
         return client;
       }),
@@ -393,7 +396,10 @@ describe('Desktop service-caller runtime', () => {
     const next = iterator.next();
     await vi.waitFor(() => expect(bridge.connectCore).toHaveBeenCalledTimes(2));
     const closing = iterator.return!();
-    resolveBinding({ hello: { methods: [] }, close });
+    resolveBinding({
+      hello: { bridge_version: 2, daemon_version: 'test', pid: 1, methods: [], topics: [] },
+      close,
+    });
     await expect(next).resolves.toEqual({ done: true, value: undefined });
     await expect(closing).resolves.toEqual({ done: true, value: undefined });
     expect(bridge.serviceCallerInboxOpen).not.toHaveBeenCalled();
