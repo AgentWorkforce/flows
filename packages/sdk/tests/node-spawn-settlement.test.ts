@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
-import { mkdtemp, rename, rm } from 'node:fs/promises';
+import { mkdtemp, rename, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runAgentRelayTask, type AgentRelayTaskRequest } from '../src/agent-relay-transport.js';
 import type { JournalClient } from '../src/journal-client.js';
@@ -30,9 +30,11 @@ async function dataDirectory(label: string): Promise<string> {
 }
 
 async function waitForSettlementTimer(): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     if (vi.getTimerCount() > 0) return;
-    await new Promise<void>(resolve => setImmediate(resolve));
+    await new Promise<void>(resolve => {
+      const handle = setInterval(() => { clearInterval(handle); resolve(); }, 1);
+    });
   }
   throw new Error('Settlement deadline was not armed');
 }
@@ -212,6 +214,9 @@ describe('durable node-result settlement', () => {
     { label: 'deadline-expired', timeoutMs: 50 },
   ])('skips a $label queued execution without opening another result iterator', async testCase => {
     const dataDir = await dataDirectory('flows-node-settlement-concurrent-observation-');
+    const aliasedDataDir = `${dataDir}-alias`;
+    await symlink(dataDir, aliasedDataDir, process.platform === 'win32' ? 'junction' : 'dir');
+    roots.push(aliasedDataDir);
     const f = fixture();
     let reportResult!: () => void;
     const resultGate = new Promise<void>(resolve => { reportResult = resolve; });
@@ -228,7 +233,7 @@ describe('durable node-result settlement', () => {
 
     const first = runAgentRelayTask(request(dataDir), { runtime: f.runtime });
     await vi.waitFor(() => expect(subscribe).toHaveBeenCalledOnce());
-    const aliasedRequest = request(relative(process.cwd(), dataDir));
+    const aliasedRequest = request(aliasedDataDir);
     const cancelled = new AbortController();
     const cancellation = new Error('worker lease lost');
     const queuedRequest = { ...aliasedRequest, timeoutMs: testCase.timeoutMs };

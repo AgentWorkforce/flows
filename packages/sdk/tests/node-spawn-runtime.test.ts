@@ -144,7 +144,7 @@ describe('remote node-spawn runtime', () => {
     const runtimeProvider = vi.fn((_signal?: AbortSignal) => new Promise<NodeSpawnRuntime>(() => undefined));
     await expect(runAgentRelayTask({
       cli: 'codex', task: 'work', runId: 'run_1', stepId: 'step_1',
-      idempotencyKey: 'dispatch_1234567890', attempt: 1, dataDir: '/tmp/unused', timeoutMs: 5,
+      idempotencyKey: 'dispatch_1234567890', attempt: 1, dataDir: '/tmp/unused', timeoutMs: 100,
     }, { runtimeProvider })).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'task_timeout' }),
     });
