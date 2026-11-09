@@ -13,8 +13,14 @@ interface LiveTeardown {
   outcome: Promise<{ failure?: unknown }>;
 }
 
-/** Current-process iterator teardown is not durable and intentionally vanishes on restart. */
-const liveTeardowns = new WeakMap<NodeSpawnRuntime, Map<string, Set<LiveTeardown>>>();
+interface LiveTeardownGroup {
+  generation: number;
+  barriers: Set<LiveTeardown>;
+  settlementStarted: boolean;
+}
+
+/** Process-generation state keyed by durable claim path; a real restart intentionally resets it. */
+const liveTeardowns = new Map<string, LiveTeardownGroup>();
 
 export function durableNodeResultDelivery(
   runtime: NodeSpawnRuntime,
@@ -31,7 +37,7 @@ export function durableNodeResultDelivery(
       'result_identity_mismatch');
   }
   if (observed?.settlementReady !== undefined) {
-    rememberLiveTeardown(runtime, path, observed.settlementReady);
+    rememberLiveTeardown(path, observed.settlementReady);
   }
   let claim = initial;
   let settling: Promise<void> | undefined;
@@ -42,23 +48,19 @@ export function durableNodeResultDelivery(
       throw new NodeSpawnError('Node result cannot settle before its journal intent is durable',
         'result_settlement_unprepared');
     }
-    const live = waitForLiveTeardowns(runtime, path);
-    if (live === undefined) {
-      await settleInbox(runtime, current.settlementAction, current.inboxItemId,
-        current.envelope.error ?? 'Relayflows rejected an invalid result');
-    } else {
-      await boundedOperation(async signal => {
-        await live;
-        signal.throwIfAborted();
-        await issueInboxSettlement(runtime, current.settlementAction, current.inboxItemId,
-          current.envelope.error ?? 'Relayflows rejected an invalid result');
-      });
-    }
+    const liveSettlement = await settleAfterLiveTeardowns(runtime, path, current.settlementAction,
+      current.inboxItemId, current.envelope.error ?? 'Relayflows rejected an invalid result');
     claim = { ...claim, result: { ...current, settlement: {
       ...current.settlement,
       settledAt: Date.now(), settledAs: current.settlementAction,
     } } };
-    await recordNodeSpawn(path, claim);
+    try {
+      await recordNodeSpawn(path, claim);
+    } catch (error) {
+      releaseLiveSettlement(path, liveSettlement);
+      throw error;
+    }
+    completeLiveSettlement(path, liveSettlement);
   };
   const settle = (): Promise<void> => {
     if (settling !== undefined) return settling;
@@ -118,63 +120,120 @@ export async function reconcileNodeResultSettlements(
       throw new NodeSpawnError('Pending node-result settlement belongs to a different publisher identity',
         'publisher_identity_mismatch');
     }
-    const live = liveTeardowns.get(runtime)?.get(entry.path);
+    const live = liveTeardowns.get(entry.path);
     if (live !== undefined) {
-      const failed = [...live].find(item => item.settled && item.failure !== undefined);
+      const failed = [...live.barriers].find(item => item.settled && item.failure !== undefined);
       if (failed !== undefined) throw failed.failure;
-      if ([...live].some(item => !item.settled)) { pending += 1; continue; }
+      if (live.settlementStarted || [...live.barriers].some(item => !item.settled)) {
+        pending += 1;
+        continue;
+      }
     }
     const terminal = await terminalEntry(journal, entry.claim.runId, entry.claim.stepId, settlement.attempt);
     if (terminal === undefined) { pending += 1; continue; }
     const exact = terminalMatchesResult(terminal, entry.claim, settlement, result);
     const action = exact ? result.settlementAction : 'fail';
-    await settleInbox(runtime, action, result.inboxItemId,
-      exact ? (result.envelope.error ?? 'Relayflows rejected an invalid result')
-        : 'The journal completed this attempt with a different terminal outcome');
+    const error = exact ? (result.envelope.error ?? 'Relayflows rejected an invalid result')
+      : 'The journal completed this attempt with a different terminal outcome';
+    const liveSettlement = await settleAfterLiveTeardowns(
+      runtime, entry.path, action, result.inboxItemId, error);
     const updated: NodeSpawnClaim = { ...entry.claim, result: { ...result, settlement: {
       ...settlement, settledAt: Date.now(), settledAs: action,
     } } };
-    await recordNodeSpawn(entry.path, updated);
+    try {
+      await recordNodeSpawn(entry.path, updated);
+    } catch (error) {
+      releaseLiveSettlement(entry.path, liveSettlement);
+      throw error;
+    }
+    completeLiveSettlement(entry.path, liveSettlement);
   }
   return pending;
 }
 
 function rememberLiveTeardown(
-  runtime: NodeSpawnRuntime,
   path: string,
   outcome: Promise<{ failure?: unknown }>,
 ): void {
   const normalized = outcome.then(result => result, failure => ({ failure }));
   const live: LiveTeardown = { settled: false, outcome: normalized };
-  let byPath = liveTeardowns.get(runtime);
-  if (byPath === undefined) {
-    byPath = new Map();
-    liveTeardowns.set(runtime, byPath);
+  let group = liveTeardowns.get(path);
+  if (group === undefined) {
+    group = { generation: 0, barriers: new Set(), settlementStarted: false };
+    liveTeardowns.set(path, group);
   }
-  let barriers = byPath.get(path);
-  if (barriers === undefined) {
-    barriers = new Set();
-    byPath.set(path, barriers);
+  if (group.settlementStarted) {
+    throw new NodeSpawnError('Node result gained a live teardown after settlement started',
+      'result_settlement_unconfirmed');
   }
-  barriers.add(live);
+  group.generation += 1;
+  group.barriers.add(live);
   void normalized.then(result => {
     live.settled = true;
     live.failure = result.failure;
     if (result.failure === undefined) {
-      const current = liveTeardowns.get(runtime)?.get(path);
-      current?.delete(live);
-      if (current?.size === 0) liveTeardowns.get(runtime)?.delete(path);
+      liveTeardowns.get(path)?.barriers.delete(live);
     }
   });
 }
 
-function waitForLiveTeardowns(runtime: NodeSpawnRuntime, path: string): Promise<void> | undefined {
-  const barriers = liveTeardowns.get(runtime)?.get(path);
-  if (barriers === undefined) return undefined;
-  return Promise.all([...barriers].map(item => item.outcome)).then(outcomes => {
-    const failed = outcomes.find(item => item.failure !== undefined);
-    if (failed?.failure !== undefined) throw failed.failure;
+interface LiveSettlement {
+  group: LiveTeardownGroup;
+  generation: number;
+}
+
+async function settleAfterLiveTeardowns(
+  runtime: NodeSpawnRuntime,
+  path: string,
+  action: 'ack' | 'fail',
+  inboxItemId: string,
+  error: string,
+): Promise<LiveSettlement> {
+  return boundedOperation(async signal => {
+    for (;;) {
+      let group = liveTeardowns.get(path);
+      if (group === undefined) {
+        group = { generation: 0, barriers: new Set(), settlementStarted: false };
+        liveTeardowns.set(path, group);
+      }
+      if (group.settlementStarted) {
+        throw new NodeSpawnError('Node result settlement is already in progress',
+          'result_settlement_unconfirmed');
+      }
+      const generation = group.generation;
+      const outcomes = group.barriers.size === 0
+        ? []
+        : await Promise.all([...group.barriers].map(item => item.outcome));
+      const failed = outcomes.find(item => item.failure !== undefined);
+      if (failed?.failure !== undefined) throw failed.failure;
+      signal.throwIfAborted();
+      const current = liveTeardowns.get(path);
+      if (current !== group || current.generation !== generation) continue;
+      current.settlementStarted = true;
+      try {
+        await issueInboxSettlement(runtime, action, inboxItemId, error);
+        return { group: current, generation };
+      } catch (settlementError) {
+        current.settlementStarted = false;
+        throw settlementError;
+      }
+    }
   });
+}
+
+function releaseLiveSettlement(path: string, settlement: LiveSettlement): void {
+  const current = liveTeardowns.get(path);
+  if (current === settlement.group && current.generation === settlement.generation) {
+    current.settlementStarted = false;
+  }
+}
+
+function completeLiveSettlement(path: string, settlement: LiveSettlement): void {
+  const current = liveTeardowns.get(path);
+  if (current === settlement.group && current.generation === settlement.generation
+    && current.settlementStarted && current.barriers.size === 0) {
+    liveTeardowns.delete(path);
+  }
 }
 
 function terminalMatchesResult(
@@ -215,15 +274,6 @@ async function terminalEntry(
   }
 }
 
-async function settleInbox(
-  runtime: NodeSpawnRuntime,
-  action: 'ack' | 'fail',
-  inboxItemId: string,
-  error: string,
-): Promise<void> {
-  await bounded(issueInboxSettlement(runtime, action, inboxItemId, error));
-}
-
 function issueInboxSettlement(
   runtime: NodeSpawnRuntime,
   action: 'ack' | 'fail',
@@ -237,24 +287,7 @@ function issueInboxSettlement(
   return pending;
 }
 
-async function bounded(pending: Promise<unknown>): Promise<void> {
-  let timer: NodeJS.Timeout | undefined;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new NodeSpawnError(
-      'Node-result inbox settlement did not confirm within its independent deadline',
-      'result_settlement_unconfirmed')),
-    SETTLEMENT_ATTEMPT_TIMEOUT_MS);
-  });
-  const outcome = pending.then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
-  try {
-    const settled = await Promise.race([outcome, deadline]);
-    if (!settled.ok) throw settled.error;
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
-async function boundedOperation(operation: (signal: AbortSignal) => Promise<unknown>): Promise<void> {
+async function boundedOperation<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   let timer: NodeJS.Timeout | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
@@ -267,10 +300,11 @@ async function boundedOperation(operation: (signal: AbortSignal) => Promise<unkn
     }, SETTLEMENT_ATTEMPT_TIMEOUT_MS);
   });
   const pending = operation(controller.signal)
-    .then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
+    .then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
   try {
     const settled = await Promise.race([pending, deadline]);
     if (!settled.ok) throw settled.error;
+    return settled.value;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }

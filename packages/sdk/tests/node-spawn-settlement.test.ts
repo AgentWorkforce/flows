@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -185,25 +185,60 @@ describe('durable node-result settlement', () => {
     const observed = (settlementReady: Promise<{ failure?: unknown }>): NodeResultDelivery => ({
       ...received.delivery, settlementReady,
     });
-    durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim, observed(firstReady));
-    const delivery = durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim, observed(secondReady));
+    const delivery = durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim, observed(firstReady));
     await delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
-    finishSecond();
-    await Promise.resolve();
-    vi.useFakeTimers();
-    try {
-      const blocked = expect(delivery.ack())
-        .rejects.toMatchObject({ code: 'result_settlement_unconfirmed' });
-      await vi.advanceTimersByTimeAsync(10_001);
-      await blocked;
-      expect(f.ack).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    const settling = delivery.ack();
+    durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim, observed(secondReady));
     finishFirst();
     await Promise.resolve();
-    await expect(delivery.ack()).resolves.toBeUndefined();
+    expect(f.ack).not.toHaveBeenCalled();
+    finishSecond();
+    await Promise.resolve();
+    await expect(settling).resolves.toBeUndefined();
     expect(f.ack).toHaveBeenCalledOnce();
+  });
+
+  it('refuses a new live observation after inbox settlement has started', async () => {
+    const dataDir = await dataDirectory('flows-node-settlement-late-observation-');
+    const f = fixture();
+    const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    const [entry] = await readNodeSpawnClaims(dataDir);
+    let finishAck!: () => void;
+    f.ack.mockImplementationOnce(() => new Promise(resolve => { finishAck = () => resolve({}); }));
+    const delivery = durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim);
+    await delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    const settling = delivery.ack();
+    await vi.waitFor(() => expect(f.ack).toHaveBeenCalledOnce());
+
+    expect(() => durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim, {
+      ...received.delivery, settlementReady: Promise.resolve({}),
+    })).toThrowError(expect.objectContaining({ code: 'result_settlement_unconfirmed' }));
+    finishAck();
+    await expect(settling).resolves.toBeUndefined();
+  });
+
+  it('releases the process settlement lock when persisting settledAt fails', async () => {
+    const dataDir = await dataDirectory('flows-node-settlement-record-retry-');
+    const f = fixture();
+    const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    const claimsDirectory = join(dataDir, 'node-spawns');
+    const unavailableDirectory = `${claimsDirectory}.unavailable`;
+    await rename(claimsDirectory, unavailableDirectory);
+    let restored = false;
+    try {
+      await expect(received.delivery.ack()).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(f.ack).toHaveBeenCalledOnce();
+      await rename(unavailableDirectory, claimsDirectory);
+      restored = true;
+    } finally {
+      if (!restored) await rename(unavailableDirectory, claimsDirectory).catch(() => undefined);
+    }
+
+    await expect(received.delivery.ack()).resolves.toBeUndefined();
+    expect(f.ack).toHaveBeenCalledTimes(2);
+    const [settled] = await readNodeSpawnClaims(dataDir);
+    expect(settled!.claim.result?.settlement).toMatchObject({ settledAs: 'ack' });
   });
 
   it.each([
@@ -239,10 +274,14 @@ describe('durable node-result settlement', () => {
     const freshRuntime = { ...f.runtime } satisfies NodeSpawnRuntime;
     await expect(reconcileNodeResultSettlements(dataDir, freshRuntime, {
       journalRead: vi.fn(async () => ({ entries: [terminalEntry()] })),
-    })).resolves.toBe(0);
-    expect(f.ack).toHaveBeenCalledOnce();
+    })).resolves.toBe(1);
+    expect(f.ack).not.toHaveBeenCalled();
     finishTeardown();
     await Promise.resolve();
+    await expect(reconcileNodeResultSettlements(dataDir, freshRuntime, {
+      journalRead: vi.fn(async () => ({ entries: [terminalEntry()] })),
+    })).resolves.toBe(0);
+    expect(f.ack).toHaveBeenCalledOnce();
   });
 
   it('rejects an invalid resolved spawn receipt before reading the inbox and releases exact identity', async () => {
