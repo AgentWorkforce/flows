@@ -77,7 +77,8 @@ export async function runAgentRelayTask(
   }
   const claimPath = nodeSpawnClaimPath(
     request.dataDir, request.runId, request.stepId, request.idempotencyKey);
-  return serializeClaimExecution(claimPath, async () => {
+  const taskDeadline = taskStartedAt + timeoutMs;
+  return serializeClaimExecution(claimPath, taskDeadline, options.signal, async () => {
     options.signal?.throwIfAborted();
     return runAgentRelayTaskExclusive(request, options, taskStartedAt, timeoutMs);
   });
@@ -134,18 +135,45 @@ async function runAgentRelayTaskExclusive(
   }
 }
 
-async function serializeClaimExecution<T>(path: string, execute: () => Promise<T>): Promise<T> {
+async function serializeClaimExecution<T>(
+  path: string,
+  deadline: number,
+  signal: AbortSignal | undefined,
+  execute: () => Promise<T>,
+): Promise<T> {
   const prior = claimExecutions.get(path) ?? Promise.resolve();
   let release!: () => void;
   const occupied = new Promise<void>(resolve => { release = resolve; });
   const queued = prior.then(() => occupied, () => occupied);
   claimExecutions.set(path, queued);
-  await prior.catch(() => undefined);
+  let acquired = false;
   try {
+    let remaining: number;
+    try { remaining = remainingDeadline(deadline); }
+    catch (error) {
+      throw new AgentRelayTransportError('The node-spawn task deadline elapsed', error);
+    }
+    const queueTimeout = AbortSignal.timeout(remaining);
+    const queueSignal = signal === undefined ? queueTimeout : AbortSignal.any([signal, queueTimeout]);
+    try { await waitForNodeOperation(prior, queueSignal); }
+    catch (error) {
+      if (signal?.aborted !== true && queueTimeout.aborted) {
+        const timeout = new NodeSpawnError('The node-spawn task deadline elapsed', 'task_timeout', error);
+        throw new AgentRelayTransportError(timeout.message, timeout);
+      }
+      throw error;
+    }
+    acquired = true;
     return await execute();
   } finally {
     release();
-    if (claimExecutions.get(path) === queued) claimExecutions.delete(path);
+    if (acquired && claimExecutions.get(path) === queued) {
+      claimExecutions.delete(path);
+    } else if (!acquired) {
+      void queued.then(() => {
+        if (claimExecutions.get(path) === queued) claimExecutions.delete(path);
+      });
+    }
   }
 }
 

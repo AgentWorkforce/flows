@@ -198,7 +198,10 @@ describe('durable node-result settlement', () => {
     expect(f.ack).toHaveBeenCalledOnce();
   });
 
-  it('serializes concurrent executions before opening a second result iterator', async () => {
+  it.each([
+    { label: 'cancelled', timeoutMs: 10_000 },
+    { label: 'deadline-expired', timeoutMs: 50 },
+  ])('skips a $label queued execution without opening another result iterator', async testCase => {
     const dataDir = await dataDirectory('flows-node-settlement-concurrent-observation-');
     const f = fixture();
     let reportResult!: () => void;
@@ -216,17 +219,33 @@ describe('durable node-result settlement', () => {
 
     const first = runAgentRelayTask(request(dataDir), { runtime: f.runtime });
     await vi.waitFor(() => expect(subscribe).toHaveBeenCalledOnce());
-    const second = runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    const cancelled = new AbortController();
+    const cancellation = new Error('worker lease lost');
+    const queuedRequest = { ...request(dataDir), timeoutMs: testCase.timeoutMs };
+    const second = runAgentRelayTask(queuedRequest, { runtime: f.runtime,
+      ...(testCase.label === 'cancelled' ? { signal: cancelled.signal } : {}) });
+    const third = runAgentRelayTask(request(dataDir), { runtime: f.runtime });
     await Promise.resolve();
+    expect(subscribe).toHaveBeenCalledOnce();
+    expect(f.spawn).toHaveBeenCalledOnce();
+    if (testCase.label === 'cancelled') {
+      cancelled.abort(cancellation);
+      await expect(second).rejects.toBe(cancellation);
+    } else {
+      await expect(second).rejects.toMatchObject({
+        message: 'The node-spawn task deadline elapsed',
+        cause: { code: 'task_timeout' },
+      });
+    }
     expect(subscribe).toHaveBeenCalledOnce();
     expect(f.spawn).toHaveBeenCalledOnce();
 
     reportResult();
-    const [firstResult, secondResult] = await Promise.all([first, second]);
+    const [firstResult, thirdResult] = await Promise.all([first, third]);
     expect(subscribe).toHaveBeenCalledOnce();
     expect(f.spawn).toHaveBeenCalledOnce();
     expect(f.release).toHaveBeenCalledOnce();
-    expect(secondResult.delivery).toMatchObject({
+    expect(thirdResult.delivery).toMatchObject({
       inboxItemId: firstResult.delivery.inboxItemId,
       messageId: firstResult.delivery.messageId,
     });
