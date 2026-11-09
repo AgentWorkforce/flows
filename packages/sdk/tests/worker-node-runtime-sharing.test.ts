@@ -69,18 +69,24 @@ describe('AgentWorker node-spawn runtime ownership', () => {
 
   it.each([
     { label: 'Desktop caller', serviceCallerFile: '/tmp/caller.json', authority: undefined,
-      provideRuntime: false, expectedDirectory: 'run-root', expectedSpawn: true },
+      provideRuntime: false, expectedDirectory: 'run-root', expectedSpawn: true, expectedModel: 'codex-medium' },
+    { label: 'Desktop caller with adapter default', serviceCallerFile: '/tmp/caller.json', authority: undefined,
+      provideRuntime: false, expectedDirectory: 'run-root', expectedSpawn: true, expectedModel: undefined,
+      omitModel: true },
     { label: 'provided Desktop runtime', serviceCallerFile: undefined, authority: 'desktop' as const,
-      provideRuntime: true, expectedDirectory: 'run-root', expectedSpawn: true },
+      provideRuntime: true, expectedDirectory: 'run-root', expectedSpawn: true, expectedModel: 'codex-medium' },
     { label: 'remote publisher', serviceCallerFile: undefined, authority: 'remote' as const,
-      provideRuntime: true, inheritedCaller: true, expectedDirectory: undefined, expectedSpawn: true },
+      provideRuntime: true, inheritedCaller: true, expectedDirectory: undefined, expectedSpawn: true,
+      expectedModel: 'codex-medium' },
     { label: 'inherited caller cleared by worker environment', serviceCallerFile: undefined,
       authority: undefined, provideRuntime: false, inheritedCaller: true, environmentCaller: '',
-      expectedDirectory: undefined, expectedSpawn: true },
+      expectedDirectory: undefined, expectedSpawn: true, expectedModel: 'codex-medium' },
     { label: 'Desktop caller with declared cwd', serviceCallerFile: '/tmp/caller.json', authority: undefined,
-      provideRuntime: false, cwd: 'checkout', expectedDirectory: 'declared', expectedSpawn: true },
+      provideRuntime: false, cwd: 'checkout', expectedDirectory: 'declared', expectedSpawn: true,
+      expectedModel: 'codex-medium' },
     { label: 'remote publisher with declared cwd', serviceCallerFile: undefined, authority: 'remote' as const,
-      provideRuntime: true, cwd: 'checkout', expectedDirectory: undefined, expectedSpawn: false },
+      provideRuntime: true, cwd: 'checkout', expectedDirectory: undefined, expectedSpawn: false,
+      expectedModel: 'codex-medium' },
   ])('routes the run directory only for the $label', async testCase => {
     const runRoot = await mkdtemp(join(tmpdir(), 'flows-node-worker-run-root-'));
     roots.push(runRoot);
@@ -132,6 +138,9 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     });
     await worker.attach();
     const value = dispatch('edit-local-path', 'dispatch_localpath');
+    if ('omitModel' in testCase && testCase.omitModel) {
+      delete (value.spec as { model?: string }).model;
+    }
     if (testCase.cwd !== undefined) {
       value.spec = { ...(value.spec as Record<string, unknown>), cwd: testCase.cwd };
     }
@@ -141,6 +150,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     if (testCase.expectedSpawn) {
       expect(spawn.mock.calls[0]![0].directory).toBe(testCase.expectedDirectory === 'run-root'
         ? runRoot : testCase.expectedDirectory === 'declared' ? exactDeclaredDirectory : undefined);
+      expect(spawn.mock.calls[0]![0].model).toBe(testCase.expectedModel);
     }
   });
 

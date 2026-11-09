@@ -541,9 +541,17 @@ function bindResolvedCliPaths(
       if (executable !== undefined && isAbsolute(executable)) {
         identities.set(step.id, resolution.cli);
       }
-      return { ...step, cli: boundCli,
-        ...(resolution.modelSource === 'adapter' && resolution.model !== undefined
-          ? { model: resolution.model } : {}) };
+      // Relay nodes own their harness default. Materializing the local CLI
+      // adapter's default here turns an omitted model into a placement
+      // override; Desktop correctly refuses that override. Explicit step
+      // models remain on `step`; named-agent models remain in the declaration
+      // map and are materialized by `toKernelSpec` at the journal boundary.
+      const adapterModel = resolution.modelSource === 'adapter'
+        && resolution.model !== undefined
+        && (step.type !== 'agent' || step.transport !== 'relay')
+        ? { model: resolution.model }
+        : {};
+      return { ...step, cli: boundCli, ...adapterModel };
     }),
   };
   return rememberResolvedCliIdentities(bound, identities);

@@ -242,13 +242,17 @@ export class AgentWorker extends EventEmitter {
     // CLI does — journaled as `worker_error` with the reason — rather than
     // spawning into a directory nobody established is inside the run root.
     const localDesktopRelay = spec.transport === 'relay' && this.localDesktopAuthority;
+    // An adapter default is useful for readiness, pricing and direct CLI
+    // execution, but is not an authored placement override. Relay harnesses
+    // select their own default when the journaled step omitted `model`.
+    const executionModel = spec.transport === 'relay' ? spec.model : effectiveModel;
     const cwd = agentStepCwd(localDesktopRelay ? { ...spec, transport: 'direct' } : spec,
       dispatch.step_id, this.options.runRoot);
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       'refusal' in cwd
         ? Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: cwd.refusal })
         : typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-          ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
+          ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, executionModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
             dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
             onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
           }, cwd.directory ?? (localDesktopRelay

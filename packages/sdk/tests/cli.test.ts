@@ -9,6 +9,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CheckReport, type CliIo } from '../src/cli.js';
 import { checkFlow } from '../src/cli/check.js';
+import { toKernelSpec } from '../src/compile.js';
 import { socketPathFor } from '../src/daemon-connection.js';
 import { runFlow } from '../src/cli/run.js';
 import { runAgentCli } from '../src/worker-cli.js';
@@ -458,6 +459,58 @@ steps:
       { stepId: 'declared', cli, source: 'step', model: 'step-model', modelSource: 'step' },
       { stepId: 'named', cli, source: 'step', model: 'named-model', modelSource: 'named' },
     ]);
+  });
+
+  it('does not turn an adapter default into a relay placement override', () => {
+    const directory = temporaryProject('flows-relay-default-model-');
+    const cli = executableFixture(directory, 'claude', `if [ "$1 $2" = "auth status" ]; then exit 0; fi
+if [ "$1" = "-p" ]; then exit 0; fi
+exit 7`);
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({
+      models: ['claude-opus-5', 'declared-relay-model', 'named-relay-model'],
+    }));
+    const path = join(directory, 'relay.flow.yaml');
+    writeFileSync(path, `version: '0.1.0'
+agents:
+  reviewer:
+    cli: ${JSON.stringify(cli)}
+    model: named-relay-model
+steps:
+  - id: defaulted
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    transport: relay
+    instruction: Review.
+  - id: declared
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    model: declared-relay-model
+    transport: relay
+    instruction: Review.
+  - id: named
+    type: agent
+    agent: reviewer
+    transport: relay
+    instruction: Review.
+`);
+
+    const checked = checkFlow(path);
+    expect(checked.report.ok, checked.report.diagnostics).toBe(true);
+    expect(checked.report.resolutions).toEqual([
+      { stepId: 'defaulted', cli, source: 'step', model: 'claude-opus-5', modelSource: 'adapter' },
+      { stepId: 'declared', cli, source: 'step', model: 'declared-relay-model', modelSource: 'step' },
+      { stepId: 'named', cli, source: 'named', model: 'named-relay-model', modelSource: 'named' },
+    ]);
+    expect(checked.flow?.steps).toEqual([
+      expect.objectContaining({ id: 'defaulted', transport: 'relay', cli }),
+      expect.objectContaining({ id: 'declared', transport: 'relay', cli, model: 'declared-relay-model' }),
+      expect.objectContaining({ id: 'named', transport: 'relay', cli, agent: 'reviewer' }),
+    ]);
+    expect(checked.flow?.steps[0]).not.toHaveProperty('model');
+    expect(checked.flow?.steps[2]).not.toHaveProperty('model');
+    expect(toKernelSpec(checked.flow!).steps[2]).toMatchObject({
+      id: 'named', transport: 'relay', cli, model: 'named-relay-model',
+    });
   });
 
   it('keeps the project config path with the CLI clause when the step declares the model', async () => {
