@@ -184,7 +184,7 @@ describe('Desktop service-caller runtime', () => {
       close: 'caller.inbox.close',
       disconnect: 'caller.disconnect',
     },
-    desktopVersion: '17.3.0',
+    desktopVersion: '18.0.0',
   };
 
   function fixture() {
@@ -357,6 +357,62 @@ describe('Desktop service-caller runtime', () => {
     expect(bridge.serviceCallerInboxOpen).toHaveBeenCalledOnce();
     expect(bridge.serviceCallerInboxNext).toHaveBeenCalledTimes(3);
     await iterator.return?.();
+  });
+
+  it('disconnects a late inbox binding without opening an iterator after close', async () => {
+    const { bridge, close } = fixture();
+    const runtime = await createLocalNodeSpawnRuntime('/tmp/caller.json', { bridge });
+    let resolveBinding!: (client: CoreBridgeClient) => void;
+    vi.mocked(bridge.connectCore).mockImplementationOnce(() => new Promise(resolve => {
+      resolveBinding = resolve;
+    }));
+    const iterator = runtime.inbox.inbox.subscribe({ invocationId: 'inv_1' })[Symbol.asyncIterator]();
+    const next = iterator.next();
+    await vi.waitFor(() => expect(bridge.connectCore).toHaveBeenCalledTimes(2));
+    const closing = iterator.return!();
+    resolveBinding({ hello: { methods: [] }, close });
+    await expect(next).resolves.toEqual({ done: true, value: undefined });
+    await expect(closing).resolves.toEqual({ done: true, value: undefined });
+    expect(bridge.serviceCallerInboxOpen).not.toHaveBeenCalled();
+    expect(bridge.serviceCallerInboxClose).not.toHaveBeenCalled();
+    expect(bridge.serviceCallerDisconnect).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('closes an iterator whose uncooperative open resolves after close', async () => {
+    const { bridge, close } = fixture();
+    const runtime = await createLocalNodeSpawnRuntime('/tmp/caller.json', { bridge });
+    let finishOpen!: () => void;
+    vi.mocked(bridge.serviceCallerInboxOpen).mockImplementationOnce(
+      () => new Promise(resolve => { finishOpen = () => resolve({ iterator_id: 'it_late' }); }),
+    );
+    const iterator = runtime.inbox.inbox.subscribe({ invocationId: 'inv_1' })[Symbol.asyncIterator]();
+    const next = iterator.next();
+    await vi.waitFor(() => expect(bridge.serviceCallerInboxOpen).toHaveBeenCalledOnce());
+    const closing = iterator.return!();
+    expect(bridge.serviceCallerInboxNext).not.toHaveBeenCalled();
+    expect(bridge.serviceCallerDisconnect).not.toHaveBeenCalled();
+    finishOpen();
+    await expect(next).resolves.toEqual({ done: true, value: undefined });
+    await expect(closing).resolves.toEqual({ done: true, value: undefined });
+    expect(bridge.serviceCallerInboxNext).not.toHaveBeenCalled();
+    expect(bridge.serviceCallerInboxClose).toHaveBeenCalledWith(expect.anything(), 'it_late');
+    expect(bridge.serviceCallerDisconnect).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('disconnects an authenticated binding when inbox open rejects', async () => {
+    const { bridge, close } = fixture();
+    const runtime = await createLocalNodeSpawnRuntime('/tmp/caller.json', { bridge });
+    const openFailure = new Error('open rejected');
+    vi.mocked(bridge.serviceCallerInboxOpen).mockRejectedValueOnce(openFailure);
+    const iterator = runtime.inbox.inbox.subscribe({ invocationId: 'inv_1' })[Symbol.asyncIterator]();
+    await expect(iterator.next()).rejects.toBe(openFailure);
+    await expect(iterator.return!()).rejects.toBe(openFailure);
+    expect(bridge.serviceCallerInboxNext).not.toHaveBeenCalled();
+    expect(bridge.serviceCallerInboxClose).not.toHaveBeenCalled();
+    expect(bridge.serviceCallerDisconnect).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it.each(['result_too_large', 'result_write_failed'] as const)(

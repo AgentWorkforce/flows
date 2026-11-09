@@ -138,6 +138,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     private readonly core: CoreBridgeClient,
     private readonly bridge: Pick<CoreBridgeApi, 'spawnTargets' | 'spawnInvoke' | 'spawnStatus' | 'spawnRelease'>,
     private readonly scope: Pick<CallerDescriptor, 'harnesses' | 'directoryScope'>,
+    private readonly exactNode: { readonly id: string; readonly name: string },
   ) {}
 
   async targets(): Promise<NodeSpawnTarget[]> {
@@ -187,11 +188,14 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
       );
     }
     const allTargets = await this.targets();
-    const eligible = allTargets.filter(candidate => candidate.live && candidate.handlersLive
-      && !candidate.stale && candidate.capabilities.includes(`spawn:${request.harness}`));
-    const target = request.node === undefined
-      ? eligible[0]
-      : eligible.find(candidate => candidate.name === request.node);
+    if (request.node !== undefined && request.node !== this.exactNode.name) {
+      throw new NodeSpawnError('The requested node differs from the authenticated Desktop node',
+        'spawn_identity_mismatch');
+    }
+    const target = allTargets.find(candidate => candidate.id === this.exactNode.id
+      && candidate.name === this.exactNode.name
+      && candidate.live && candidate.handlersLive && !candidate.stale
+      && candidate.capabilities.includes(`spawn:${request.harness}`));
     if (!target?.id) throw new NodeSpawnError('No eligible local Agent Relay spawn target', 'no_eligible_node');
     const raw = await this.bridge.spawnInvoke(this.core, {
       node_id: target.id,
@@ -235,8 +239,10 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
       throw new NodeSpawnError('Invalid node-release idempotency key', 'spawn_invalid_input');
     }
     const receipt = request.receipt;
-    if (!receipt.nodeId) {
-      throw new NodeSpawnError('Local release requires the exact spawn node id', 'release_identity_mismatch');
+    if (!receipt.nodeId || receipt.nodeId !== this.exactNode.id
+      || receipt.nodeName !== this.exactNode.name) {
+      throw new NodeSpawnError('Local release requires the authenticated Desktop node identity',
+        'release_identity_mismatch');
     }
     const raw = await this.bridge.spawnRelease(this.core, {
       node_id: receipt.nodeId,

@@ -32,9 +32,10 @@ private file explicitly with `--service-caller-file /absolute/caller.json`,
 the SDK `serviceCallerFile` option, or `RELAYFLOW_SERVICE_CALLER_FILE`. Flows
 never scans Desktop's app-data directory. It securely parses and
 challenge-authenticates the handoff through optional
-`@agent-relay/core-bridge` 17.3 or later, then sends no caller name or secret
+`@agent-relay/core-bridge` 18.x, then sends no caller name or secret
 on spawn or inbox calls. The handoff's harness and directory scope is enforced
-before dispatch.
+before dispatch. A local relay step with no authored `cwd` spawns in that run's
+root; remote relay placement still receives no local directory.
 
 `RELAYFLOW_SERVICE_CALLER_FILE` and `RELAY_AGENT_TOKEN` are mutually exclusive:
 the former is local Desktop authority and the latter is remote fleet authority.

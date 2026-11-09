@@ -11,9 +11,16 @@ export function durableNodeResultDelivery(
   runtime: NodeSpawnRuntime,
   path: string,
   initial: NodeSpawnClaim,
+  observed?: NodeResultDelivery,
 ): NodeResultDelivery {
   const result = initial.result;
   if (result === undefined) throw new NodeSpawnError('Node result settlement requires a durable result');
+  if (observed !== undefined && (observed.inboxItemId !== result.inboxItemId
+    || observed.messageId !== result.messageId
+    || observed.settlementAction !== result.settlementAction)) {
+    throw new NodeSpawnError('Observed node result differs from its durable settlement identity',
+      'result_identity_mismatch');
+  }
   let claim = initial;
   let settling: Promise<void> | undefined;
   const settleOnce = async (): Promise<void> => {
@@ -22,6 +29,10 @@ export function durableNodeResultDelivery(
     if (current.settlement === undefined) {
       throw new NodeSpawnError('Node result cannot settle before its journal intent is durable',
         'result_settlement_unprepared');
+    }
+    if (observed?.settlementReady !== undefined) {
+      const teardown = await observed.settlementReady;
+      if (teardown.failure !== undefined) throw teardown.failure;
     }
     await settleInbox(runtime, current.settlementAction, current.inboxItemId,
       current.envelope.error ?? 'Relayflows rejected an invalid result');
@@ -43,6 +54,7 @@ export function durableNodeResultDelivery(
     messageId: result.messageId,
     envelope: result.envelope,
     settlementAction: result.settlementAction,
+    ...(observed?.settlementReady === undefined ? {} : { settlementReady: observed.settlementReady }),
     prepareSettlement: async input => {
       const current = claim.result;
       if (current === undefined) throw new NodeSpawnError('Durable node result disappeared before settlement');

@@ -22,6 +22,8 @@ export interface NodeSpawnRuntime {
   node?: string;
   repo?: string;
   sandboxOnly?: boolean;
+  /** Explicit authority family; Desktop alone may receive the worker's local run root. */
+  authority?: 'desktop' | 'remote';
   /** Closes the publisher connection after every task using it has drained. */
   disconnect?(): Promise<void>;
 }
@@ -78,6 +80,7 @@ export async function createRemoteNodeSpawnRuntime(
     inbox: { inbox: client.inbox },
     publisher,
     baseUrl,
+    authority: 'remote',
     disconnect: () => client.events.disconnect(),
     ...(env.RELAYFLOW_NODE_NAME?.trim() ? { node: env.RELAYFLOW_NODE_NAME.trim() } : {}),
     ...(env.RELAYFLOW_NODE_REPO?.trim() ? { repo: env.RELAYFLOW_NODE_REPO.trim() } : {}),
@@ -112,10 +115,11 @@ export async function createLocalNodeSpawnRuntime(
       );
     }
     return {
-      port: new LocalNodeSpawnPort(core, bridge, descriptor),
+      port: new LocalNodeSpawnPort(core, bridge, descriptor, identity.node),
       inbox: localResultInbox(bridge, descriptor),
       publisher: identity.publisher,
       baseUrl: identity.base_url,
+      authority: 'desktop',
       node: identity.node.name,
       disconnect: async () => {
         await disconnectBoundCore(bridge, core);
@@ -230,42 +234,65 @@ function localInboxSubscription(
 ): AsyncIterable<{ id: string; message: { id: string; text: string; from: { id?: string; name?: string } } }> {
   return { [Symbol.asyncIterator]() {
     let core: CoreBridgeClient | undefined;
+    let binding: Promise<CoreBridgeClient> | undefined;
+    let opening: Promise<void> | undefined;
     let iteratorId: string | undefined;
     let closed = false;
+    let closePromise: Promise<void> | undefined;
     let resolveClosed!: (result: { failure?: unknown }) => void;
     const closedPromise = new Promise<{ failure?: unknown }>(resolve => {
       resolveClosed = resolve;
     });
-    const close = async (): Promise<void> => {
-      if (closed) return;
+    const closeOnce = async (): Promise<void> => {
       closed = true;
-      if (core === undefined) {
-        resolveClosed({});
+      let failure: unknown;
+      if (opening !== undefined) {
+        try { await opening; }
+        catch (error) { failure = error; }
+      }
+      const bound = core;
+      if (bound === undefined) {
+        resolveClosed(failure === undefined ? {} : { failure });
+        if (failure !== undefined) throw failure;
         return;
       }
-      let failure: unknown;
       try {
-        if (iteratorId !== undefined) await bridge.serviceCallerInboxClose(core, iteratorId);
-      } catch (error) { failure = error; }
+        if (iteratorId !== undefined) await bridge.serviceCallerInboxClose(bound, iteratorId);
+      } catch (error) { failure ??= error; }
       try {
-        await disconnectBoundCore(bridge, core, failure);
+        await disconnectBoundCore(bridge, bound, failure);
         resolveClosed({});
       } catch (error) {
         resolveClosed({ failure: error });
         throw error;
       }
     };
+    const close = (): Promise<void> => closePromise ??= closeOnce();
+    const ensureOpen = (): Promise<void> => opening ??= (async () => {
+      binding ??= bindCore(bridge, descriptor, signal);
+      core = await binding;
+      if (closed) return;
+      const opened = await bridge.serviceCallerInboxOpen(core, invocationId, { signal });
+      iteratorId = opened.iterator_id;
+    })();
     return {
       async next() {
         for (;;) {
           signal?.throwIfAborted();
           if (closed) return { done: true, value: undefined };
           if (core === undefined) {
-            core = await bindCore(bridge, descriptor, signal);
-            const opened = await bridge.serviceCallerInboxOpen(core, invocationId, { signal });
-            iteratorId = opened.iterator_id;
+            await ensureOpen();
+            if (closed) {
+              await close();
+              return { done: true, value: undefined };
+            }
           }
-          const result = await bridge.serviceCallerInboxNext(core, iteratorId!, 30_000, { signal });
+          const bound = core;
+          if (bound === undefined || iteratorId === undefined) {
+            throw new NodeSpawnError('Desktop inbox binding did not return an iterator',
+              'invalid_core_response');
+          }
+          const result = await bridge.serviceCallerInboxNext(bound, iteratorId, 30_000, { signal });
           if (result.delivery !== null) {
             if (result.delivery.invocation_id !== invocationId) {
               throw new NodeSpawnError(

@@ -47,6 +47,8 @@ export interface NodeResultDelivery {
   messageId: string;
   envelope: NodeResultEnvelope;
   settlementAction: 'ack' | 'fail';
+  /** Non-rejecting current-process teardown outcome. Durable replay intentionally omits it. */
+  settlementReady?: Promise<{ failure?: unknown }>;
   /** Durably records the journal settlement that must precede inbox settlement. */
   prepareSettlement?(input: { attempt: number; completionReason: string }): Promise<void>;
   /** Called only after the result has been durably appended to the run journal. */
@@ -106,6 +108,7 @@ export async function waitForNodeResult(
         messageId: item.message.id,
         envelope,
         settlementAction: 'ack',
+        settlementReady: settlementOutcome(item),
         ack: async () => { await awaitSettlementReady(item); await client.inbox.ack({ inboxItemId: item.id, state: 'read',
           metadata: { relayflows_result: 'journaled' } }); },
       };
@@ -139,9 +142,14 @@ function rejectedDelivery(
     envelope: { version: 1, run_id: expected.runId, step_id: expected.stepId,
       dispatch_id: expected.dispatchId, status: 'failed', error: reason },
     settlementAction: 'fail',
+    settlementReady: settlementOutcome(item),
     ack: async () => { await awaitSettlementReady(item); await client.inbox.fail({ inboxItemId: item.id, error: reason, retry: false,
       metadata: { relayflows_result: 'rejected' } }); },
   };
+}
+
+function settlementOutcome(item: InboxItem): Promise<{ failure?: unknown }> | undefined {
+  return item.settlementReady?.then(outcome => outcome, failure => ({ failure }));
 }
 
 async function awaitSettlementReady(item: InboxItem): Promise<void> {

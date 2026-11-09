@@ -82,6 +82,51 @@ function terminalEntry(payload: Record<string, unknown> = journaledRelayResult()
 }
 
 describe('durable node-result settlement', () => {
+  it('carries the observed teardown barrier through durable settlement', async () => {
+    const dataDir = await dataDirectory('flows-node-settlement-teardown-barrier-');
+    const f = fixture();
+    const order: string[] = [];
+    let finishClose!: () => void;
+    const closeGate = new Promise<void>(resolve => { finishClose = resolve; });
+    let reportClosed!: (value: { failure?: unknown }) => void;
+    const settlementReady = new Promise<{ failure?: unknown }>(resolve => { reportClosed = resolve; });
+    let delivered = false;
+    f.runtime.inbox.inbox.subscribe = () => ({ [Symbol.asyncIterator]() {
+      return {
+        async next() {
+          if (delivered) return new Promise<IteratorResult<never>>(() => undefined);
+          delivered = true;
+          const name = (await f.spawn.mock.results[0]!.value).name;
+          return { done: false as const, value: {
+            id: 'delivery_1', settlementReady,
+            message: { id: 'message_1', from: { id: 'agent_1', name },
+              text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1',
+                step_id: 'edit', dispatch_id: 'dispatch_1234567890', status: 'completed',
+                output: { summary: 'done' } }) },
+          } };
+        },
+        async return() {
+          order.push('inbox.close');
+          await closeGate;
+          order.push('caller.disconnect');
+          reportClosed({});
+          return { done: true as const, value: undefined };
+        },
+      };
+    } });
+    f.ack.mockImplementation(async () => { order.push('settle'); return {}; });
+
+    const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    await vi.waitFor(() => expect(order).toEqual(['inbox.close']));
+    await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    const settling = received.delivery.ack();
+    await Promise.resolve();
+    expect(f.ack).not.toHaveBeenCalled();
+    finishClose();
+    await settling;
+    expect(order).toEqual(['inbox.close', 'caller.disconnect', 'settle']);
+  });
+
   it('rejects an invalid resolved spawn receipt before reading the inbox and releases exact identity', async () => {
     const dataDir = await dataDirectory('flows-node-invalid-resolved-spawn-');
     const f = fixture();

@@ -281,7 +281,7 @@ async function executeAgentRelayTask(
     // Construct the settlement wrapper from the post-release claim. Otherwise
     // preparing its journal intent could rewrite the file from a stale copy
     // and silently discard the exact release receipt.
-    const delivery = durableNodeResultDelivery(runtime, claimed.path, claim);
+    const delivery = durableNodeResultDelivery(runtime, claimed.path, claim, observed);
     resultSignal?.throwIfAborted();
     const envelope = delivery.envelope;
     const error = envelope.status === 'failed' ? envelope.error! : null;

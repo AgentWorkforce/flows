@@ -27,6 +27,62 @@ afterEach(async () => {
 });
 
 describe('AgentWorker node-spawn runtime ownership', () => {
+  it.each([
+    { label: 'Desktop caller', serviceCallerFile: '/tmp/caller.json', authority: undefined,
+      provideRuntime: false, expectedDirectory: 'run-root' },
+    { label: 'provided Desktop runtime', serviceCallerFile: undefined, authority: 'desktop' as const,
+      provideRuntime: true, expectedDirectory: 'run-root' },
+    { label: 'remote publisher', serviceCallerFile: undefined, authority: 'remote' as const,
+      provideRuntime: true, expectedDirectory: undefined },
+  ])('passes the local run root only to the $label relay spawn', async testCase => {
+    const runRoot = await mkdtemp(join(tmpdir(), 'flows-node-worker-run-root-'));
+    roots.push(runRoot);
+    let spawnedName = '';
+    const spawn = vi.fn<NodeSpawnPort['spawn']>(async input => {
+      spawnedName = input.name;
+      return { id: 'spawn_worker_path', action: 'spawn', status: 'completed',
+        nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_worker_path',
+        spawned: true, ready: true };
+    });
+    const runtime: NodeSpawnRuntime = {
+      publisher: { id: 'publisher_1', name: 'flows-publisher' },
+      baseUrl: 'https://cast.agentrelay.com',
+      ...(testCase.authority === undefined ? {} : { authority: testCase.authority }),
+      port: { targets: async () => [], spawn, status: vi.fn(),
+        release: vi.fn(async () => ({ id: 'release_worker_path', action: 'release' as const,
+          status: 'completed' as const, spawned: false, ready: false, released: true })) },
+      inbox: { inbox: {
+        subscribe: async function* () {
+          yield { id: 'delivery_worker_path', message: { id: 'message_worker_path',
+            from: { id: 'agent_worker_path', name: spawnedName },
+            text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_parallel',
+              step_id: 'edit-local-path', dispatch_id: 'dispatch_localpath', status: 'completed',
+              output: { summary: 'done' } }) } };
+        },
+        ack: vi.fn(async () => ({})), fail: vi.fn(async () => ({})),
+      } },
+    };
+    owner.get.mockResolvedValue(runtime);
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+      stepComplete: vi.fn(async () => ({})),
+      supportsFeature: vi.fn(() => true),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: `worker_${testCase.label}`, pins: {}, dataDir: join(runRoot, 'data'), runRoot,
+      ...(testCase.serviceCallerFile === undefined ? {} : { serviceCallerFile: testCase.serviceCallerFile }),
+      ...(testCase.provideRuntime ? { nodeSpawnRuntime: runtime } : {}),
+    });
+    await worker.attach();
+    client.emit('step.dispatch', dispatch('edit-local-path', 'dispatch_localpath'));
+    await worker.close();
+    expect(spawn).toHaveBeenCalledOnce();
+    expect(spawn.mock.calls[0]![0].directory).toBe(
+      testCase.expectedDirectory === 'run-root' ? runRoot : undefined,
+    );
+  });
+
   it('closes the shared runtime even when final durable inbox settlement still fails', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-shared-node-runtime-settlement-failure-'));
     roots.push(dataDir);

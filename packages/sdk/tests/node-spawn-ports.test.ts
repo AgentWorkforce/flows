@@ -22,7 +22,7 @@ function localPort(core: TestCore): LocalNodeSpawnPort {
   return new LocalNodeSpawnPort(client, bridge, {
     harnesses: ['codex'],
     directoryScope: ['/workspace'],
-  });
+  }, { id: 'node_1', name: 'desktop-1' });
 }
 
 describe('local node-spawn port', () => {
@@ -105,6 +105,20 @@ describe('local node-spawn port', () => {
       directory: '/workspace', idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
       code: 'no_eligible_node',
     });
+    expect(calls).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not dispatch to a duplicate node name with a different authenticated id', async () => {
+    const calls = vi.fn();
+    const core: TestCore = { async call<T>(method: string): Promise<T> {
+      calls(method);
+      if (method === 'spawn.targets') return { targets: [{ id: 'node_other', name: 'desktop-1',
+        live: true, handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
+      throw new Error('spawn must not be invoked');
+    } };
+    await expect(localPort(core).spawn({ name: 'worker_1', harness: 'codex', task: 'work',
+      node: 'desktop-1', directory: '/workspace', idempotencyKey: 'dispatch_1234567890' }))
+      .rejects.toMatchObject({ code: 'no_eligible_node' });
     expect(calls).toHaveBeenCalledTimes(1);
   });
 

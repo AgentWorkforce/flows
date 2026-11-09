@@ -235,7 +235,9 @@ export class AgentWorker extends EventEmitter {
     // the agent's filesystem. A refusal completes the step the way a missing
     // CLI does — journaled as `worker_error` with the reason — rather than
     // spawning into a directory nobody established is inside the run root.
-    const cwd = agentStepCwd(spec, dispatch.step_id, this.options.runRoot);
+    const localDesktopRelay = spec.transport === 'relay' && this.usesLocalDesktopAuthority();
+    const cwd = agentStepCwd(localDesktopRelay ? { ...spec, transport: 'direct' } : spec,
+      dispatch.step_id, this.options.runRoot);
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       'refusal' in cwd
         ? Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: cwd.refusal })
@@ -243,7 +245,9 @@ export class AgentWorker extends EventEmitter {
           ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
             dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
             onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
-          }, cwd.directory ?? (spec.transport === 'relay' ? undefined : this.options.runRoot),
+          }, cwd.directory ?? (localDesktopRelay
+            ? (this.options.runRoot ?? process.cwd())
+            : (spec.transport === 'relay' ? undefined : this.options.runRoot)),
             spec.transport === 'relay' ? 'relay' : 'direct',
             { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
               attempt: dispatch.attempt, dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema,
@@ -325,6 +329,14 @@ export class AgentWorker extends EventEmitter {
     // Relay delivery is transport state, not execution truth. Only settle it
     // after the journal has accepted the attempt's terminal fact.
     await relayDelivery?.ack();
+  }
+
+  /** Explicit Desktop authority is the only relay mode allowed to receive a local run root. */
+  private usesLocalDesktopAuthority(): boolean {
+    return this.options.nodeSpawnRuntime?.authority === 'desktop'
+      || Boolean(this.options.serviceCallerFile?.trim()
+      || this.options.environment?.RELAYFLOW_SERVICE_CALLER_FILE?.trim()
+      || process.env.RELAYFLOW_SERVICE_CALLER_FILE?.trim());
   }
 
   private reconcileRelaySettlementsAfterDrain(): Promise<void> {
