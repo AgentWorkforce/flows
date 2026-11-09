@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { readNodeResult, waitForNodeResult, NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
 
 const correlation = { runId: 'run_1', stepId: 'step_1', dispatchId: 'dispatch_1234567890' };
+const expected = { agentId: 'agent_1', agentName: 'worker', invocationId: 'inv_1', ...correlation };
 
 describe('node-spawn result hardening', () => {
   it('requires immutable attempt correlation and terminal evidence', () => {
@@ -18,19 +19,21 @@ describe('node-spawn result hardening', () => {
 
   it('ignores a forged name match without the exact immutable sender id', async () => {
     const ack = vi.fn();
+    const subscribe = vi.fn(async function* () {
+      for (const [id, sender] of [['forged', 'attacker'], ['real', 'agent_1']] as const) yield {
+        id, message: { id: `message_${id}`, from: { id: sender, name: 'worker' },
+          text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1', step_id: 'step_1',
+            dispatch_id: correlation.dispatchId, status: 'completed', output: { id } }) },
+      };
+    });
     const delivery = await waitForNodeResult({
       inbox: {
-        subscribe: async function* () {
-          for (const [id, sender] of [['forged', 'attacker'], ['real', 'agent_1']] as const) yield {
-            id, message: { id: `message_${id}`, from: { id: sender, name: 'worker' },
-              text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1', step_id: 'step_1',
-                dispatch_id: correlation.dispatchId, status: 'completed', output: { id } }) },
-          };
-        },
+        subscribe,
         ack: async input => { ack(input); }, fail: async () => {},
       },
-    }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    }, expected);
     expect(delivery.envelope.output).toEqual({ id: 'real' });
+    expect(subscribe).toHaveBeenCalledWith(expect.objectContaining({ invocationId: 'inv_1' }));
     expect(ack).not.toHaveBeenCalled();
   });
 
@@ -40,7 +43,7 @@ describe('node-spawn result hardening', () => {
       subscribe: async function* () { yield { id: 'delivery_bad', message: { id: 'message_bad',
         from: { id: 'agent_1', name: 'worker' }, text: NODE_RESULT_PREFIX + '{bad' } }; },
       ack: async () => ({}), fail,
-    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    } }, expected);
     expect(delivery.envelope.status).toBe('failed');
     expect(fail).not.toHaveBeenCalled();
     await delivery.ack();
@@ -65,7 +68,7 @@ describe('node-spawn result hardening', () => {
         return: returned,
       }) }),
       ack, fail: async () => ({}),
-    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    } }, expected);
     expect(returned).toHaveBeenCalledOnce();
     expect(ack).not.toHaveBeenCalled();
     await delivery.ack();
@@ -84,7 +87,7 @@ describe('node-spawn result hardening', () => {
         return: returned,
       }) }),
       ack: async () => ({}), fail: async () => ({}),
-    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    } }, expected);
     expect(delivery.envelope.output).toEqual({ ok: true });
     expect(returned).toHaveBeenCalledOnce();
   });
@@ -101,7 +104,7 @@ describe('node-spawn result hardening', () => {
         return: returned,
       }) }),
       ack: async () => ({}), fail: async () => ({}),
-    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    } }, expected);
     expect(delivery.envelope.output).toEqual({ ok: true });
     expect(returned).toHaveBeenCalledOnce();
   });
@@ -115,7 +118,7 @@ describe('node-spawn result hardening', () => {
         return: async () => { returned(); return { done: true, value: undefined }; },
       }) }),
       ack: async () => ({}), fail: async () => ({}),
-    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation }, controller.signal);
+    } }, expected, controller.signal);
     controller.abort(new Error('lease lost'));
     await expect(waiting).rejects.toThrow('lease lost');
     expect(returned).toHaveBeenCalledOnce();
@@ -130,7 +133,7 @@ describe('node-spawn result hardening', () => {
         return: returned,
       }) }),
       ack: async () => ({}), fail: async () => ({}),
-    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation }, controller.signal);
+    } }, expected, controller.signal);
     controller.abort(new Error('lease lost'));
     await expect(waiting).rejects.toThrow('lease lost');
     expect(returned).toHaveBeenCalledOnce();
@@ -145,7 +148,7 @@ describe('node-spawn result hardening', () => {
         return: returned,
       }) }),
       ack: async () => ({}), fail: async () => ({}),
-    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation }, controller.signal);
+    } }, expected, controller.signal);
     controller.abort(new Error('lease lost'));
     await expect(waiting).rejects.toThrow('lease lost');
     expect(returned).toHaveBeenCalledOnce();

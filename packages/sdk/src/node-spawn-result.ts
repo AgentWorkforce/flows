@@ -27,7 +27,7 @@ interface InboxItem {
 
 export interface NodeResultInboxClient {
   inbox: {
-    subscribe(input?: { signal?: AbortSignal }): AsyncIterable<InboxItem>;
+    subscribe(input?: { signal?: AbortSignal; invocationId?: string }): AsyncIterable<InboxItem>;
     ack(input: { inboxItemId: string; state?: 'delivered' | 'read'; metadata?: Record<string, unknown> }): Promise<unknown>;
     fail(input: { inboxItemId: string; error: string; retry?: boolean; metadata?: Record<string, unknown> }): Promise<unknown>;
   };
@@ -61,10 +61,10 @@ export function nodeResultInstruction(correlation: NodeResultCorrelation): strin
 
 export async function waitForNodeResult(
   client: NodeResultInboxClient,
-  expected: { agentId: string; agentName: string } & NodeResultCorrelation,
+  expected: { agentId: string; agentName: string; invocationId: string } & NodeResultCorrelation,
   signal?: AbortSignal,
 ): Promise<NodeResultDelivery> {
-  const iterator = client.inbox.subscribe({ signal })[Symbol.asyncIterator]();
+  const iterator = client.inbox.subscribe({ signal, invocationId: expected.invocationId })[Symbol.asyncIterator]();
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= Promise.resolve().then(() => iterator.return?.()).then(() => undefined);

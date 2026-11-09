@@ -248,6 +248,7 @@ async function executeAgentRelayTask(
       ? await waitForNodeResult(runtime.inbox, {
           agentId: spawn.agentId,
           agentName: spawn.name,
+          invocationId: spawn.id,
           ...correlation,
         }, resultSignal)
       : undefined;
