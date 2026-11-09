@@ -22,7 +22,7 @@ import {
   redactText,
   type TranscriptDigest,
 } from './agent-transcript.js';
-import { createNodeSpawnRuntime, createNodeSpawnRuntimeOwner, type NodeSpawnRuntime,
+import { createNodeSpawnRuntime, createNodeSpawnRuntimeOwner, mergeNodeSpawnEnvironment, type NodeSpawnRuntime,
   type NodeSpawnRuntimeOwner } from './node-spawn-runtime.js';
 import { reconcileNodeResultSettlements } from './node-spawn-settlement.js';
 import { readNodeSpawnClaims } from './node-spawn-state.js';
@@ -75,6 +75,7 @@ export class AgentWorker extends EventEmitter {
   private settlementTimer?: NodeJS.Timeout;
   private settlementDrain?: Promise<void>;
   private settlementReconcile?: Promise<void>;
+  private readonly localDesktopAuthority: boolean;
   private readonly inFlight: Set<Promise<void>> = new Set();
   private readonly nodeSpawnRuntimeOwner: NodeSpawnRuntimeOwner;
 
@@ -83,15 +84,13 @@ export class AgentWorker extends EventEmitter {
     private readonly options: AgentWorkerOptions,
   ) {
     super();
+    const runtimeEnvironment = mergeNodeSpawnEnvironment(options.environment, options.serviceCallerFile);
+    this.localDesktopAuthority = options.nodeSpawnRuntime === undefined
+      ? Boolean(runtimeEnvironment.RELAYFLOW_SERVICE_CALLER_FILE?.trim())
+      : options.nodeSpawnRuntime.authority === 'desktop';
     this.nodeSpawnRuntimeOwner = createNodeSpawnRuntimeOwner(
       options.nodeSpawnRuntime,
-      signal => createNodeSpawnRuntime({
-        ...process.env,
-        ...options.environment,
-        ...(options.serviceCallerFile === undefined
-          ? {}
-          : { RELAYFLOW_SERVICE_CALLER_FILE: options.serviceCallerFile }),
-      }, { signal }),
+      signal => createNodeSpawnRuntime(runtimeEnvironment, { signal }),
     );
   }
 
@@ -235,7 +234,7 @@ export class AgentWorker extends EventEmitter {
     // the agent's filesystem. A refusal completes the step the way a missing
     // CLI does — journaled as `worker_error` with the reason — rather than
     // spawning into a directory nobody established is inside the run root.
-    const localDesktopRelay = spec.transport === 'relay' && this.usesLocalDesktopAuthority();
+    const localDesktopRelay = spec.transport === 'relay' && this.localDesktopAuthority;
     const cwd = agentStepCwd(localDesktopRelay ? { ...spec, transport: 'direct' } : spec,
       dispatch.step_id, this.options.runRoot);
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
@@ -329,14 +328,6 @@ export class AgentWorker extends EventEmitter {
     // Relay delivery is transport state, not execution truth. Only settle it
     // after the journal has accepted the attempt's terminal fact.
     await relayDelivery?.ack();
-  }
-
-  /** Explicit Desktop authority is the only relay mode allowed to receive a local run root. */
-  private usesLocalDesktopAuthority(): boolean {
-    return this.options.nodeSpawnRuntime?.authority === 'desktop'
-      || Boolean(this.options.serviceCallerFile?.trim()
-      || this.options.environment?.RELAYFLOW_SERVICE_CALLER_FILE?.trim()
-      || process.env.RELAYFLOW_SERVICE_CALLER_FILE?.trim());
   }
 
   private reconcileRelaySettlementsAfterDrain(): Promise<void> {

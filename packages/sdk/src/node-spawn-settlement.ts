@@ -7,6 +7,15 @@ import { NodeSpawnError, isRecord } from './node-spawn.js';
 
 const SETTLEMENT_ATTEMPT_TIMEOUT_MS = 10_000;
 
+interface LiveTeardown {
+  settled: boolean;
+  failure?: unknown;
+  outcome: Promise<{ failure?: unknown }>;
+}
+
+/** Current-process iterator teardown is not durable and intentionally vanishes on restart. */
+const liveTeardowns = new WeakMap<NodeSpawnRuntime, Map<string, Set<LiveTeardown>>>();
+
 export function durableNodeResultDelivery(
   runtime: NodeSpawnRuntime,
   path: string,
@@ -21,6 +30,9 @@ export function durableNodeResultDelivery(
     throw new NodeSpawnError('Observed node result differs from its durable settlement identity',
       'result_identity_mismatch');
   }
+  if (observed?.settlementReady !== undefined) {
+    rememberLiveTeardown(runtime, path, observed.settlementReady);
+  }
   let claim = initial;
   let settling: Promise<void> | undefined;
   const settleOnce = async (): Promise<void> => {
@@ -30,14 +42,18 @@ export function durableNodeResultDelivery(
       throw new NodeSpawnError('Node result cannot settle before its journal intent is durable',
         'result_settlement_unprepared');
     }
-    await bounded((async () => {
-      if (observed?.settlementReady !== undefined) {
-        const teardown = await observed.settlementReady;
-        if (teardown.failure !== undefined) throw teardown.failure;
-      }
-      await issueInboxSettlement(runtime, current.settlementAction, current.inboxItemId,
+    const live = waitForLiveTeardowns(runtime, path);
+    if (live === undefined) {
+      await settleInbox(runtime, current.settlementAction, current.inboxItemId,
         current.envelope.error ?? 'Relayflows rejected an invalid result');
-    })());
+    } else {
+      await boundedOperation(async signal => {
+        await live;
+        signal.throwIfAborted();
+        await issueInboxSettlement(runtime, current.settlementAction, current.inboxItemId,
+          current.envelope.error ?? 'Relayflows rejected an invalid result');
+      });
+    }
     claim = { ...claim, result: { ...current, settlement: {
       ...current.settlement,
       settledAt: Date.now(), settledAs: current.settlementAction,
@@ -102,6 +118,12 @@ export async function reconcileNodeResultSettlements(
       throw new NodeSpawnError('Pending node-result settlement belongs to a different publisher identity',
         'publisher_identity_mismatch');
     }
+    const live = liveTeardowns.get(runtime)?.get(entry.path);
+    if (live !== undefined) {
+      const failed = [...live].find(item => item.settled && item.failure !== undefined);
+      if (failed !== undefined) throw failed.failure;
+      if ([...live].some(item => !item.settled)) { pending += 1; continue; }
+    }
     const terminal = await terminalEntry(journal, entry.claim.runId, entry.claim.stepId, settlement.attempt);
     if (terminal === undefined) { pending += 1; continue; }
     const exact = terminalMatchesResult(terminal, entry.claim, settlement, result);
@@ -115,6 +137,49 @@ export async function reconcileNodeResultSettlements(
     await recordNodeSpawn(entry.path, updated);
   }
   return pending;
+}
+
+/** A proven owner disconnect makes every invocation connection for that runtime stale. */
+export function clearLiveNodeResultTeardowns(runtime: NodeSpawnRuntime): void {
+  liveTeardowns.delete(runtime);
+}
+
+function rememberLiveTeardown(
+  runtime: NodeSpawnRuntime,
+  path: string,
+  outcome: Promise<{ failure?: unknown }>,
+): void {
+  const normalized = outcome.then(result => result, failure => ({ failure }));
+  const live: LiveTeardown = { settled: false, outcome: normalized };
+  let byPath = liveTeardowns.get(runtime);
+  if (byPath === undefined) {
+    byPath = new Map();
+    liveTeardowns.set(runtime, byPath);
+  }
+  let barriers = byPath.get(path);
+  if (barriers === undefined) {
+    barriers = new Set();
+    byPath.set(path, barriers);
+  }
+  barriers.add(live);
+  void normalized.then(result => {
+    live.settled = true;
+    live.failure = result.failure;
+    if (result.failure === undefined) {
+      const current = liveTeardowns.get(runtime)?.get(path);
+      current?.delete(live);
+      if (current?.size === 0) liveTeardowns.get(runtime)?.delete(path);
+    }
+  });
+}
+
+function waitForLiveTeardowns(runtime: NodeSpawnRuntime, path: string): Promise<void> | undefined {
+  const barriers = liveTeardowns.get(runtime)?.get(path);
+  if (barriers === undefined) return undefined;
+  return Promise.all([...barriers].map(item => item.outcome)).then(outcomes => {
+    const failed = outcomes.find(item => item.failure !== undefined);
+    if (failed?.failure !== undefined) throw failed.failure;
+  });
 }
 
 function terminalMatchesResult(
@@ -188,6 +253,28 @@ async function bounded(pending: Promise<unknown>): Promise<void> {
   const outcome = pending.then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
   try {
     const settled = await Promise.race([outcome, deadline]);
+    if (!settled.ok) throw settled.error;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+async function boundedOperation(operation: (signal: AbortSignal) => Promise<unknown>): Promise<void> {
+  const controller = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const error = new NodeSpawnError(
+        'Node-result inbox settlement did not confirm within its independent deadline',
+        'result_settlement_unconfirmed');
+      controller.abort(error);
+      reject(error);
+    }, SETTLEMENT_ATTEMPT_TIMEOUT_MS);
+  });
+  const pending = operation(controller.signal)
+    .then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
+  try {
+    const settled = await Promise.race([pending, deadline]);
     if (!settled.ok) throw settled.error;
   } finally {
     if (timer !== undefined) clearTimeout(timer);

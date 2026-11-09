@@ -21,6 +21,7 @@ import { AgentWorker } from '../src/worker.js';
 
 const roots: string[] = [];
 afterEach(async () => {
+  vi.unstubAllEnvs();
   owner.get.mockReset();
   owner.close.mockClear();
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
@@ -33,7 +34,10 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     { label: 'provided Desktop runtime', serviceCallerFile: undefined, authority: 'desktop' as const,
       provideRuntime: true, expectedDirectory: 'run-root', expectedSpawn: true },
     { label: 'remote publisher', serviceCallerFile: undefined, authority: 'remote' as const,
-      provideRuntime: true, expectedDirectory: undefined, expectedSpawn: true },
+      provideRuntime: true, inheritedCaller: true, expectedDirectory: undefined, expectedSpawn: true },
+    { label: 'inherited caller cleared by worker environment', serviceCallerFile: undefined,
+      authority: undefined, provideRuntime: false, inheritedCaller: true, environmentCaller: '',
+      expectedDirectory: undefined, expectedSpawn: true },
     { label: 'Desktop caller with declared cwd', serviceCallerFile: '/tmp/caller.json', authority: undefined,
       provideRuntime: false, cwd: 'checkout', expectedDirectory: 'declared', expectedSpawn: true },
     { label: 'remote publisher with declared cwd', serviceCallerFile: undefined, authority: 'remote' as const,
@@ -41,6 +45,9 @@ describe('AgentWorker node-spawn runtime ownership', () => {
   ])('routes the run directory only for the $label', async testCase => {
     const runRoot = await mkdtemp(join(tmpdir(), 'flows-node-worker-run-root-'));
     roots.push(runRoot);
+    if (testCase.inheritedCaller) {
+      vi.stubEnv('RELAYFLOW_SERVICE_CALLER_FILE', '/tmp/inherited-caller.json');
+    }
     const declaredDirectory = join(runRoot, 'checkout');
     await mkdir(declaredDirectory);
     const exactDeclaredDirectory = await realpath(declaredDirectory);
@@ -80,6 +87,9 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       workerId: `worker_${testCase.label}`, pins: {}, dataDir: join(runRoot, 'data'), runRoot,
       ...(testCase.serviceCallerFile === undefined ? {} : { serviceCallerFile: testCase.serviceCallerFile }),
       ...(testCase.provideRuntime ? { nodeSpawnRuntime: runtime } : {}),
+      ...(testCase.environmentCaller === undefined
+        ? {}
+        : { environment: { RELAYFLOW_SERVICE_CALLER_FILE: testCase.environmentCaller } }),
     });
     await worker.attach();
     const value = dispatch('edit-local-path', 'dispatch_localpath');
@@ -92,6 +102,102 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     if (testCase.expectedSpawn) {
       expect(spawn.mock.calls[0]![0].directory).toBe(testCase.expectedDirectory === 'run-root'
         ? runRoot : testCase.expectedDirectory === 'declared' ? exactDeclaredDirectory : undefined);
+    }
+  });
+
+  it('does not reconcile a journaled delivery while its live iterator teardown is unresolved', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'flows-node-live-teardown-reconcile-'));
+    roots.push(dataDir);
+    let finishTeardown!: () => void;
+    const settlementReady = new Promise<{ failure?: unknown }>(resolve => {
+      finishTeardown = () => resolve({});
+    });
+    let spawnedName = '';
+    let delivered = false;
+    const ack = vi.fn(async () => ({}));
+    const fail = vi.fn(async () => ({}));
+    const runtime: NodeSpawnRuntime = {
+      authority: 'desktop', publisher: { id: 'publisher_1', name: 'flows-publisher' },
+      baseUrl: 'https://cast.agentrelay.com',
+      port: {
+        targets: async () => [],
+        spawn: async input => {
+          spawnedName = input.name;
+          return { id: 'spawn_live_teardown', action: 'spawn', status: 'completed',
+            nodeId: 'node_1', nodeName: 'desktop-1', name: input.name,
+            agentId: 'agent_live_teardown', spawned: true, ready: true };
+        },
+        status: vi.fn(),
+        release: async () => ({ id: 'release_live_teardown', action: 'release',
+          status: 'completed', spawned: false, ready: false, released: true }),
+      },
+      inbox: { inbox: {
+        subscribe: () => ({ [Symbol.asyncIterator]() { return {
+          async next() {
+            if (delivered) return new Promise<IteratorResult<never>>(() => undefined);
+            delivered = true;
+            return { done: false as const, value: {
+              id: 'delivery_live_teardown', settlementReady,
+              message: { id: 'message_live_teardown',
+                from: { id: 'agent_live_teardown', name: spawnedName },
+                text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_parallel',
+                  step_id: 'edit-live-teardown', dispatch_id: 'dispatch_liveteardown',
+                  status: 'completed', output: { summary: 'done' } }) },
+            } };
+          },
+          async return() { await settlementReady; return { done: true as const, value: undefined }; },
+        }; } }),
+        ack,
+        fail,
+      } },
+    };
+    owner.get.mockResolvedValue(runtime);
+    let completed = false;
+    let terminalPayload: Record<string, unknown> = {};
+    const stepComplete = vi.fn<JournalClient['stepComplete']>(async (
+      _runId, _stepId, _attempt, _idempotencyKey, completionReason, payload,
+    ) => {
+      completed = true;
+      terminalPayload = { ...payload, completionReason };
+      return {} as Awaited<ReturnType<JournalClient['stepComplete']>>;
+    });
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+      stepComplete,
+      journalRead: vi.fn(async () => ({ entries: completed ? [{
+        seq: 2, segment_id: 0, entry_type: 'step.completed', run_id: 'run_parallel',
+        step_id: 'edit-live-teardown', attempt: 1, at_ms: Date.now(), payload: terminalPayload,
+      }] : [] })),
+      supportsFeature: vi.fn(() => true),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_live_teardown', pins: {}, dataDir, nodeSpawnRuntime: runtime,
+    });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    vi.useFakeTimers();
+    try {
+      client.emit('step.dispatch', dispatch('edit-live-teardown', 'dispatch_liveteardown'));
+      await vi.waitFor(() => expect(client.stepComplete).toHaveBeenCalledOnce());
+      expect(ack).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(10_001);
+      await vi.waitFor(() => expect(errors).toHaveLength(1));
+      const state = worker as unknown as { reconcileRelaySettlementsAfterDrain(): Promise<void> };
+      await state.reconcileRelaySettlementsAfterDrain();
+      expect(ack).not.toHaveBeenCalled();
+      expect(fail).not.toHaveBeenCalled();
+
+      finishTeardown();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(5_001);
+      await vi.waitFor(() => expect(ack).toHaveBeenCalledOnce());
+      expect(ack).toHaveBeenCalledOnce();
+      expect(fail).not.toHaveBeenCalled();
+      await worker.close();
+    } finally {
+      vi.useRealTimers();
     }
   });
 

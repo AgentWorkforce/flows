@@ -12,6 +12,7 @@ import {
 import { NodeSpawnError } from './node-spawn.js';
 import { RemoteNodeSpawnPort, type RemoteNodeSpawnClient } from './node-spawn-remote.js';
 import type { NodeSpawnPort } from './node-spawn.js';
+import { clearLiveNodeResultTeardowns } from './node-spawn-settlement.js';
 
 export interface NodeSpawnPublisher { id: string; name: string }
 export interface NodeSpawnRuntime {
@@ -31,6 +32,21 @@ export interface NodeSpawnRuntime {
 export interface NodeSpawnRuntimeOwner {
   get(signal?: AbortSignal): Promise<NodeSpawnRuntime>;
   close(): Promise<void>;
+}
+
+/** Applies the same authority precedence for runtime creation and worker directory policy. */
+export function mergeNodeSpawnEnvironment(
+  environment: NodeJS.ProcessEnv | undefined,
+  serviceCallerFile: string | undefined,
+  inherited: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return {
+    ...inherited,
+    ...environment,
+    ...(serviceCallerFile === undefined
+      ? {}
+      : { RELAYFLOW_SERVICE_CALLER_FILE: serviceCallerFile }),
+  };
 }
 
 interface RelayRuntimeClient extends RemoteNodeSpawnClient, NodeResultInboxClient {
@@ -174,7 +190,12 @@ export function createNodeSpawnRuntimeOwner(
     controller.abort(new Error('Node-spawn runtime owner closed'));
     if (provided !== undefined) return;
     const runtime = await pending?.catch(() => undefined);
-    await runtime?.disconnect?.().catch(() => undefined);
+    if (runtime?.disconnect !== undefined) {
+      let disconnected = false;
+      try { await runtime.disconnect(); disconnected = true; }
+      catch { /* Owner shutdown remains best-effort, but live teardown stays fail-closed. */ }
+      if (disconnected) clearLiveNodeResultTeardowns(runtime);
+    }
   };
   return { get, close: () => closePromise ??= closeOnce() };
 }

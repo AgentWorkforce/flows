@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runAgentRelayTask, type AgentRelayTaskRequest } from '../src/agent-relay-transport.js';
 import type { JournalClient } from '../src/journal-client.js';
-import { NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
-import type { NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
+import { NODE_RESULT_PREFIX, type NodeResultDelivery } from '../src/node-spawn-result.js';
+import { createNodeSpawnRuntimeOwner, type NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
+import { durableNodeResultDelivery, reconcileNodeResultSettlements } from '../src/node-spawn-settlement.js';
 import { readNodeSpawnClaims, recordNodeSpawn } from '../src/node-spawn-state.js';
 import { NodeSpawnError, type NodeSpawnPort, type NodeSpawnReceipt } from '../src/node-spawn.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
@@ -131,7 +132,10 @@ describe('durable node-result settlement', () => {
     const dataDir = await dataDirectory('flows-node-settlement-teardown-timeout-');
     const f = fixture();
     let delivered = false;
-    const settlementReady = new Promise<{ failure?: unknown }>(() => undefined);
+    let finishTeardown!: () => void;
+    const settlementReady = new Promise<{ failure?: unknown }>(resolve => {
+      finishTeardown = () => resolve({});
+    });
     f.runtime.inbox.inbox.subscribe = () => ({ [Symbol.asyncIterator]() {
       return {
         async next() {
@@ -162,9 +166,77 @@ describe('durable node-result settlement', () => {
       expect(f.fail).not.toHaveBeenCalled();
       const claims = await readNodeSpawnClaims(dataDir);
       expect(claims[0]!.claim.result?.settlement).not.toHaveProperty('settledAt');
+      finishTeardown();
+      await Promise.resolve();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('retains every live teardown registered for the same durable claim', async () => {
+    const dataDir = await dataDirectory('flows-node-settlement-multiple-teardowns-');
+    const f = fixture();
+    const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    const [entry] = await readNodeSpawnClaims(dataDir);
+    let finishFirst!: () => void;
+    let finishSecond!: () => void;
+    const firstReady = new Promise<{ failure?: unknown }>(resolve => { finishFirst = () => resolve({}); });
+    const secondReady = new Promise<{ failure?: unknown }>(resolve => { finishSecond = () => resolve({}); });
+    const observed = (settlementReady: Promise<{ failure?: unknown }>): NodeResultDelivery => ({
+      ...received.delivery, settlementReady,
+    });
+    durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim, observed(firstReady));
+    const delivery = durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim, observed(secondReady));
+    await delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    finishSecond();
+    await Promise.resolve();
+    vi.useFakeTimers();
+    try {
+      const blocked = expect(delivery.ack())
+        .rejects.toMatchObject({ code: 'result_settlement_unconfirmed' });
+      await vi.advanceTimersByTimeAsync(10_001);
+      await blocked;
+      expect(f.ack).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+    finishFirst();
+    await Promise.resolve();
+    await expect(delivery.ack()).resolves.toBeUndefined();
+    expect(f.ack).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { label: 'successful', disconnectFails: false, expectedPending: 0, expectedAcks: 1 },
+    { label: 'failed', disconnectFails: true, expectedPending: 1, expectedAcks: 0 },
+  ])('$label owner disconnect controls whether a live teardown survives', async testCase => {
+    const dataDir = await dataDirectory(`flows-node-settlement-owner-${testCase.label}-`);
+    const f = fixture();
+    const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    const [entry] = await readNodeSpawnClaims(dataDir);
+    let finishTeardown!: () => void;
+    const settlementReady = new Promise<{ failure?: unknown }>(resolve => {
+      finishTeardown = () => resolve({});
+    });
+    const delivery = durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim, {
+      ...received.delivery, settlementReady,
+    });
+    await delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    const disconnect = vi.fn(async () => {
+      if (testCase.disconnectFails) throw new Error('disconnect failed');
+    });
+    f.runtime.disconnect = disconnect;
+    const owner = createNodeSpawnRuntimeOwner(undefined, async () => f.runtime);
+    await owner.get();
+    await owner.close();
+    const pending = await reconcileNodeResultSettlements(dataDir, f.runtime, {
+      journalRead: vi.fn(async () => ({ entries: [terminalEntry()] })),
+    });
+    expect(pending).toBe(testCase.expectedPending);
+    expect(f.ack).toHaveBeenCalledTimes(testCase.expectedAcks);
+    expect(disconnect).toHaveBeenCalledOnce();
+    finishTeardown();
+    await Promise.resolve();
   });
 
   it('rejects an invalid resolved spawn receipt before reading the inbox and releases exact identity', async () => {
