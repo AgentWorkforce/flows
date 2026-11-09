@@ -22,8 +22,8 @@ import {
   redactText,
   type TranscriptDigest,
 } from './agent-transcript.js';
-import { createNodeSpawnRuntime, createNodeSpawnRuntimeOwner, mergeNodeSpawnEnvironment, type NodeSpawnRuntime,
-  type NodeSpawnRuntimeOwner } from './node-spawn-runtime.js';
+import { createNodeSpawnRuntime, createNodeSpawnRuntimeOwner, explicitServiceCallerFile,
+  mergeNodeSpawnEnvironment, type NodeSpawnRuntime, type NodeSpawnRuntimeOwner } from './node-spawn-runtime.js';
 import { reconcileNodeResultSettlements } from './node-spawn-settlement.js';
 import { readNodeSpawnClaims } from './node-spawn-state.js';
 
@@ -86,7 +86,7 @@ export class AgentWorker extends EventEmitter {
     super();
     const runtimeEnvironment = mergeNodeSpawnEnvironment(options.environment, options.serviceCallerFile);
     this.localDesktopAuthority = options.nodeSpawnRuntime === undefined
-      ? Boolean(runtimeEnvironment.RELAYFLOW_SERVICE_CALLER_FILE?.trim())
+      ? explicitServiceCallerFile(runtimeEnvironment) !== undefined
       : options.nodeSpawnRuntime.authority === 'desktop';
     this.nodeSpawnRuntimeOwner = createNodeSpawnRuntimeOwner(
       options.nodeSpawnRuntime,

@@ -46,6 +46,28 @@ describe('AgentWorker node-spawn runtime ownership', () => {
   });
 
   it.each([
+    { label: 'whitespace-only caller', environment: { RELAYFLOW_SERVICE_CALLER_FILE: '   ' } },
+    { label: 'whitespace caller plus remote token', environment: {
+      RELAYFLOW_SERVICE_CALLER_FILE: '   ', RELAY_AGENT_TOKEN: 'agent-token',
+    } },
+  ])('validates a $label before registering the worker', async ({ environment }) => {
+    const callerFailure = new Error('Desktop caller authority is invalid');
+    owner.get.mockRejectedValue(callerFailure);
+    const workerAttach = vi.fn(async () => ({}));
+    const client = Object.assign(new EventEmitter(), { workerAttach });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_invalid_whitespace_caller',
+      pins: {},
+      environment,
+    });
+
+    await expect(worker.attach()).rejects.toBe(callerFailure);
+    expect(owner.get).toHaveBeenCalledOnce();
+    expect(workerAttach).not.toHaveBeenCalled();
+    expect(owner.close).toHaveBeenCalledOnce();
+  });
+
+  it.each([
     { label: 'Desktop caller', serviceCallerFile: '/tmp/caller.json', authority: undefined,
       provideRuntime: false, expectedDirectory: 'run-root', expectedSpawn: true },
     { label: 'provided Desktop runtime', serviceCallerFile: undefined, authority: 'desktop' as const,

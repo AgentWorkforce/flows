@@ -242,6 +242,29 @@ describe('Desktop service-caller runtime', () => {
     expect(relay.constructorOptions).toHaveLength(0);
   });
 
+  it('passes the exact caller capability path without trimming it', async () => {
+    const { bridge } = fixture();
+    const exactPath = '/tmp/caller.json ';
+    const runtime = await createNodeSpawnRuntime({
+      RELAYFLOW_SERVICE_CALLER_FILE: exactPath,
+    }, { bridge });
+    expect(bridge.readCallerDescriptor).toHaveBeenCalledWith(exactPath);
+    await runtime.disconnect?.();
+  });
+
+  it('refuses whitespace-only caller authority instead of selecting the remote path', async () => {
+    const { bridge } = fixture();
+    await expect(createNodeSpawnRuntime({
+      RELAYFLOW_SERVICE_CALLER_FILE: '   ',
+    }, { bridge })).rejects.toMatchObject({ code: 'caller_file_invalid' });
+    await expect(createNodeSpawnRuntime({
+      RELAYFLOW_SERVICE_CALLER_FILE: '   ',
+      RELAY_AGENT_TOKEN: 'agent-token',
+    }, { bridge })).rejects.toMatchObject({ code: 'ambiguous_publisher_authority' });
+    expect(bridge.readCallerDescriptor).not.toHaveBeenCalled();
+    expect(relay.constructorOptions).toHaveLength(0);
+  });
+
   it('does not scan for a Desktop caller when neither authority was explicit', async () => {
     const { bridge } = fixture();
     await expect(createNodeSpawnRuntime({}, { bridge }))

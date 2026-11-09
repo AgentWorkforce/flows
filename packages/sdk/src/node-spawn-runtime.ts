@@ -48,6 +48,12 @@ export function mergeNodeSpawnEnvironment(
   };
 }
 
+/** Returns an exact nonempty Desktop capability path; paths are never normalized. */
+export function explicitServiceCallerFile(env: NodeJS.ProcessEnv): string | undefined {
+  const serviceCallerFile = env.RELAYFLOW_SERVICE_CALLER_FILE;
+  return serviceCallerFile === undefined || serviceCallerFile === '' ? undefined : serviceCallerFile;
+}
+
 interface RelayRuntimeClient extends RemoteNodeSpawnClient, NodeResultInboxClient {
   agents: RemoteNodeSpawnClient['agents'] & { me(): Promise<NodeSpawnPublisher> };
   events: { disconnect(): Promise<void> };
@@ -151,15 +157,15 @@ export async function createNodeSpawnRuntime(
   env: NodeJS.ProcessEnv = process.env,
   options: { signal?: AbortSignal; bridge?: CoreBridgeApi } = {},
 ): Promise<NodeSpawnRuntime> {
-  const serviceCallerFile = env.RELAYFLOW_SERVICE_CALLER_FILE?.trim();
+  const serviceCallerFile = explicitServiceCallerFile(env);
   const agentToken = env.RELAY_AGENT_TOKEN?.trim();
-  if (serviceCallerFile && agentToken) {
+  if (serviceCallerFile !== undefined && agentToken) {
     throw new NodeSpawnError(
       'RELAYFLOW_SERVICE_CALLER_FILE and RELAY_AGENT_TOKEN name different node-spawn authorities; choose one',
       'ambiguous_publisher_authority',
     );
   }
-  if (serviceCallerFile) return createLocalNodeSpawnRuntime(serviceCallerFile, options);
+  if (serviceCallerFile !== undefined) return createLocalNodeSpawnRuntime(serviceCallerFile, options);
   return createRemoteNodeSpawnRuntime(env, options);
 }
 
