@@ -70,7 +70,10 @@ export function cliInvocationArgv0(cli: string, cliIdentity?: string): string {
 export interface WorkerCliResult {
   relay_task?: import('./agent-relay-receipt.js').RelayTaskReceipt;
   /** Settled only after the journal accepts stepComplete; never journaled. */
-  relay_delivery?: { ack(): Promise<void> };
+  relay_delivery?: {
+    prepareSettlement?(input: { attempt: number; completionReason: string }): Promise<void>;
+    ack(): Promise<void>;
+  };
   tokens_input?: number;
   tokens_output?: number;
   exit_code: number | null;
@@ -122,6 +125,7 @@ export interface AgentRelayContext {
   runId: string;
   stepId: string;
   idempotencyKey: string;
+  attempt: number;
   dataDir?: string;
   resultSchema?: unknown;
   nodeSpawnRuntime?: NodeSpawnRuntime;
@@ -399,7 +403,7 @@ async function runViaAgentRelay(
     const received = await runAgentRelayTask({
       cli: kind, task, model, worker_cwd, result_schema: context.resultSchema,
       runId: context.runId, stepId: context.stepId, idempotencyKey: context.idempotencyKey,
-      dataDir: context.dataDir,
+      attempt: context.attempt, dataDir: context.dataDir,
     }, { signal, runtime: context.nodeSpawnRuntime, runtimeProvider: context.nodeSpawnRuntimeProvider });
     const receipt = { ...received.receipt,
       error: received.receipt.error === null ? null : redactRelayError(received.receipt.error) };

@@ -37,6 +37,9 @@ export interface NodeResultDelivery {
   inboxItemId: string;
   messageId: string;
   envelope: NodeResultEnvelope;
+  settlementAction: 'ack' | 'fail';
+  /** Durably records the journal settlement that must precede inbox settlement. */
+  prepareSettlement?(input: { attempt: number; completionReason: string }): Promise<void>;
   /** Called only after the result has been durably appended to the run journal. */
   ack(): Promise<void>;
 }
@@ -87,6 +90,7 @@ export async function waitForNodeResult(
           messageId: item.message.id,
           envelope: { version: 1, run_id: expected.runId, step_id: expected.stepId,
             dispatch_id: expected.dispatchId, status: 'failed', error: reason },
+          settlementAction: 'fail',
           ack: async () => { await client.inbox.fail({ inboxItemId: item.id, error: reason, retry: false,
             metadata: { relayflows_result: 'rejected' } }); },
         };
@@ -95,6 +99,7 @@ export async function waitForNodeResult(
         inboxItemId: item.id,
         messageId: item.message.id,
         envelope,
+        settlementAction: 'ack',
         ack: async () => { await client.inbox.ack({ inboxItemId: item.id, state: 'read',
           metadata: { relayflows_result: 'journaled' } }); },
       };

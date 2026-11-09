@@ -11,10 +11,11 @@ import { EventEmitter } from 'node:events';
 import { AgentWorker } from '../src/worker.js';
 import type { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
+import { readNodeSpawnClaims, recordNodeSpawn } from '../src/node-spawn-state.js';
 
 const request = (dataDir: string): AgentRelayTaskRequest => ({
   cli: 'codex', task: 'Implement the change', runId: 'run_1', stepId: 'edit',
-  idempotencyKey: 'dispatch_1234567890', dataDir, timeoutMs: 10_000,
+  idempotencyKey: 'dispatch_1234567890', attempt: 1, dataDir, timeoutMs: 10_000,
 });
 
 const roots: string[] = [];
@@ -26,7 +27,8 @@ async function dataDirectory(label: string): Promise<string> {
 }
 
 function fixture(result: 'completed' | 'failed' = 'completed'): { runtime: NodeSpawnRuntime; spawn: ReturnType<typeof vi.fn>;
-  release: ReturnType<typeof vi.fn>; status: ReturnType<typeof vi.fn>; ack: ReturnType<typeof vi.fn> } {
+  release: ReturnType<typeof vi.fn>; status: ReturnType<typeof vi.fn>;
+  ack: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> } {
   const receipt: NodeSpawnReceipt = {
     id: 'inv_spawn_1', action: 'spawn', status: 'completed', nodeId: 'node_1', nodeName: 'desktop-1',
     name: 'placeholder', agentId: 'agent_1', spawned: true, ready: true,
@@ -36,6 +38,7 @@ function fixture(result: 'completed' | 'failed' = 'completed'): { runtime: NodeS
     status: 'completed' as const, spawned: false, ready: false, released: true }));
   const status = vi.fn(async () => ({ ...receipt, name: receipt.name }));
   const ack = vi.fn(async () => ({}));
+  const fail = vi.fn(async () => ({}));
   const port: NodeSpawnPort = {
     targets: async () => [], spawn, status, release,
   };
@@ -62,10 +65,10 @@ function fixture(result: 'completed' | 'failed' = 'completed'): { runtime: NodeS
         };
       },
       ack,
-      fail: vi.fn(async () => ({})),
+      fail,
     } },
   };
-  return { runtime, spawn, release, status, ack };
+  return { runtime, spawn, release, status, ack, fail };
 }
 
 describe('native node-spawn task transport', () => {
@@ -84,18 +87,19 @@ describe('native node-spawn task transport', () => {
       task_execution: { agent_id: 'agent_1', delivery_id: 'delivery_1', release_invocation_id: 'inv_release_1' },
     });
     expect(f.ack).not.toHaveBeenCalled();
+    await result.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
     await result.delivery.ack();
     expect(f.ack).toHaveBeenCalledWith(expect.objectContaining({ inboxItemId: 'delivery_1', state: 'read' }));
   });
 
-  it('recovers a recorded spawn without issuing a second spawn or release', async () => {
+  it('replays a durable result without a second spawn, release, or remote status lookup', async () => {
     const dataDir = await dataDirectory('flows-node-recover-');
     const f = fixture();
     await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
     const recovered = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
     expect(f.spawn).toHaveBeenCalledTimes(1);
     expect(f.release).toHaveBeenCalledTimes(1);
-    expect(f.status).toHaveBeenCalledWith('spawn', 'inv_spawn_1');
+    expect(f.status).not.toHaveBeenCalled();
     expect(recovered.receipt.status).toBe('completed');
   });
 
@@ -160,6 +164,49 @@ describe('native node-spawn task transport', () => {
     expect(f.spawn).toHaveBeenCalledOnce();
     expect(f.release).toHaveBeenCalledOnce();
     expect(f.status).not.toHaveBeenCalled();
+  });
+
+  it('refuses to extend the original durable execution deadline on redispatch', async () => {
+    const dataDir = await dataDirectory('flows-node-deadline-identity-');
+    const f = fixture();
+    const controller = new AbortController();
+    f.spawn.mockImplementationOnce(async (input: { name: string }) => {
+      queueMicrotask(() => controller.abort(new Error('worker stopped')));
+      return { id: 'inv_spawn_1', action: 'spawn' as const, status: 'completed' as const,
+        nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_1',
+        spawned: true as const, ready: true as const };
+    });
+    await expect(runAgentRelayTask({ ...request(dataDir), timeoutMs: 1_000 }, {
+      runtime: f.runtime, signal: controller.signal,
+    })).rejects.toThrow('worker stopped');
+    await expect(runAgentRelayTask({ ...request(dataDir), timeoutMs: 60_000 }, { runtime: f.runtime }))
+      .rejects.toThrow('conflicts with its durable identity or input');
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
+  });
+
+  it('bounds a recovered spawn status lookup by the original deadline and releases exact identity', async () => {
+    vi.useFakeTimers();
+    try {
+      const dataDir = await dataDirectory('flows-node-status-stall-');
+      const f = fixture();
+      const bounded = { ...request(dataDir), timeoutMs: 1_000 };
+      await runAgentRelayTask(bounded, { runtime: f.runtime });
+      const [entry] = await readNodeSpawnClaims(dataDir);
+      const { result: _result, release: _release, ...spawnOnly } = entry!.claim;
+      await recordNodeSpawn(entry!.path, spawnOnly);
+      f.status.mockImplementationOnce(() => new Promise(() => undefined));
+      const pending = expect(runAgentRelayTask(bounded, { runtime: f.runtime }))
+        .rejects.toThrow();
+      await vi.waitFor(() => expect(f.status).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(1_001);
+      await pending;
+      expect(f.release).toHaveBeenCalledTimes(2);
+      const [recovered] = await readNodeSpawnClaims(dataDir);
+      expect(recovered!.claim.release).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('returns promptly from a cancelled confirmation and cleans up its late exact receipt', async () => {
@@ -235,6 +282,31 @@ describe('native node-spawn task transport', () => {
     expect(recovered.receipt.status).toBe('completed');
   });
 
+  it('bounds a stalled exact release and retries it from durable cleanup state', async () => {
+    vi.useFakeTimers();
+    try {
+      const dataDir = await dataDirectory('flows-node-cleanup-stall-');
+      const f = fixture();
+      f.release.mockImplementationOnce(() => new Promise(() => undefined));
+      const task = runAgentRelayTask({ ...request(dataDir), timeoutMs: 60_000 }, { runtime: f.runtime });
+      const rejection = expect(task).rejects.toMatchObject({ cleanupPending: true });
+      await vi.waitFor(() => expect(f.release).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(15_001);
+      await rejection;
+      expect(f.ack).not.toHaveBeenCalled();
+      const claims = await readNodeSpawnClaims(dataDir);
+      expect(claims[0]!.claim.cleanupPending).toMatchObject({
+        attempts: 1,
+        lastError: expect.stringContaining('independent deadline'),
+      });
+      const recovered = await runAgentRelayTask({ ...request(dataDir), timeoutMs: 60_000 }, { runtime: f.runtime });
+      expect(f.release).toHaveBeenCalledTimes(2);
+      expect(recovered.receipt.status).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('leaves failed cleanup nonterminal so a worker redispatch can finish exact release', async () => {
     const dataDir = await dataDirectory('flows-node-worker-cleanup-');
     const f = fixture();
@@ -298,7 +370,24 @@ describe('native node-spawn task transport', () => {
     expect(f.status).not.toHaveBeenCalled();
   });
 
-  it('keeps the original deadline across restart and bounds completed-result recovery', async () => {
+  it('releases a durably failed spawn before any status or inbox recovery', async () => {
+    const dataDir = await dataDirectory('flows-node-failure-before-cleanup-');
+    const f = fixture();
+    await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    const [entry] = await readNodeSpawnClaims(dataDir);
+    const { result: _result, release: _release, cleanupPending: _pending, ...spawned } = entry!.claim;
+    await recordNodeSpawn(entry!.path, { ...spawned,
+      failure: { code: 'spawn_cancelled', message: 'worker stopped after spawn' } });
+    f.release.mockClear();
+    f.status.mockClear();
+    f.runtime.inbox.inbox.subscribe = async function* () { throw new Error('inbox must not be read'); };
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('worker stopped after spawn');
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(f.status).not.toHaveBeenCalled();
+  });
+
+  it('keeps the original execution deadline but never expires a durably observed result', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
       const started = new Date('2026-11-07T00:00:00.000Z');
@@ -309,10 +398,11 @@ describe('native node-spawn task transport', () => {
       await runAgentRelayTask(bounded, { runtime: f.runtime });
       vi.setSystemTime(started.getTime() + 1_001);
       await expect(runAgentRelayTask(bounded, { runtime: f.runtime })).resolves.toBeDefined();
-      expect(f.status).toHaveBeenCalledTimes(1);
+      expect(f.status).not.toHaveBeenCalled();
       vi.setSystemTime(started.getTime() + 31_001);
-      await expect(runAgentRelayTask(bounded, { runtime: f.runtime })).rejects.toThrow('deadline elapsed');
-      expect(f.status).toHaveBeenCalledTimes(1);
+      f.runtime.inbox.inbox.subscribe = async function* () { throw new Error('must use durable envelope'); };
+      await expect(runAgentRelayTask(bounded, { runtime: f.runtime })).resolves.toBeDefined();
+      expect(f.status).not.toHaveBeenCalled();
       expect(f.spawn).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
@@ -348,5 +438,41 @@ describe('native node-spawn task transport', () => {
       expect.not.stringMatching(/^success$/), expect.objectContaining({
         trajectory_tail: { relay_task: expect.objectContaining({ status: 'failed', error: 'agent reported failure' }) },
       }));
+  });
+
+  it('journals a malformed exact-sender envelope before dead-lettering its delivery', async () => {
+    const dataDir = await dataDirectory('flows-node-malformed-result-');
+    const f = fixture();
+    f.runtime.inbox.inbox.subscribe = async function* () {
+      const name = (await f.spawn.mock.results[0]!.value).name;
+      yield { id: 'delivery_1', message: { id: 'message_1',
+        from: { id: 'agent_1', name },
+        text: NODE_RESULT_PREFIX + '{bad',
+      } };
+    };
+    const order: string[] = [];
+    f.fail.mockImplementation(async () => { order.push('fail'); return {}; });
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+      stepComplete: vi.fn(async () => { expect(f.fail).not.toHaveBeenCalled(); order.push('journal'); return {}; }),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_1', pins: {}, dataDir, nodeSpawnRuntime: f.runtime,
+    });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    client.emit('step.dispatch', {
+      run_id: 'run_1', step_id: 'edit', attempt: 1, step_type: 'agent',
+      spec: { cli: 'codex', instruction: 'Implement the change', transport: 'relay' },
+      idempotency_key: 'dispatch_1234567890', lease_id: 'lease_1',
+      lease_deadline_ms: Date.now() + 30_000, pins: {},
+    } satisfies StepDispatchEvent);
+    await worker.close();
+    expect(errors).toEqual([]);
+    expect(order).toEqual(['journal', 'fail']);
+    expect(f.ack).not.toHaveBeenCalled();
+    expect(f.fail).toHaveBeenCalledWith(expect.objectContaining({ inboxItemId: 'delivery_1', retry: false }));
   });
 });

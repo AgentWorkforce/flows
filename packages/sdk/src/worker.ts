@@ -24,6 +24,8 @@ import {
 } from './agent-transcript.js';
 import { createNodeSpawnRuntimeOwner, type NodeSpawnRuntime,
   type NodeSpawnRuntimeOwner } from './node-spawn-runtime.js';
+import { reconcileNodeResultSettlements } from './node-spawn-settlement.js';
+import { readNodeSpawnClaims } from './node-spawn-state.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
@@ -68,6 +70,8 @@ export class AgentWorker extends EventEmitter {
   private attached = false;
   private closing = false;
   private closePromise?: Promise<void>;
+  private settlementTimer?: NodeJS.Timeout;
+  private settlementReconcile?: Promise<void>;
   private readonly inFlight: Set<Promise<void>> = new Set();
   private readonly nodeSpawnRuntimeOwner: NodeSpawnRuntimeOwner;
 
@@ -84,6 +88,7 @@ export class AgentWorker extends EventEmitter {
     if (this.closing) throw new Error('agent worker: cannot attach a closed worker (construct a new one)');
     this.client.on('step.dispatch', this.onDispatch);
     try {
+      await this.reconcileRelaySettlements();
       await this.client.workerAttach(
         this.options.workerId,
         ['agent'],
@@ -94,6 +99,23 @@ export class AgentWorker extends EventEmitter {
       this.attached = true;
     } catch (error) {
       this.client.off('step.dispatch', this.onDispatch);
+      if (this.settlementTimer !== undefined) {
+        clearTimeout(this.settlementTimer);
+        this.settlementTimer = undefined;
+      }
+      // An attach attempt can create the lazy Relay runtime while reconciling
+      // a prior inbox settlement. Once attachment fails, this worker is not
+      // reusable: close that owned connection before the caller loses the
+      // worker instance.
+      this.closing = true;
+      try {
+        const close = this.nodeSpawnRuntimeOwner.close();
+        this.closePromise = close;
+        await close;
+      } catch (closeError) {
+        throw new AggregateError([error, closeError],
+          'Agent worker could not attach or close its node runtime');
+      }
       throw error;
     }
   }
@@ -120,18 +142,44 @@ export class AgentWorker extends EventEmitter {
     if (pending.length > 0) {
       await Promise.allSettled(pending);
     }
-    await this.nodeSpawnRuntimeOwner.close();
-    this.attached = false;
+    if (this.settlementTimer !== undefined) {
+      clearTimeout(this.settlementTimer);
+      this.settlementTimer = undefined;
+    }
+    let settlementError: unknown;
+    try {
+      await this.reconcileRelaySettlements();
+    } catch (error) {
+      settlementError = error;
+    }
+    try {
+      await this.nodeSpawnRuntimeOwner.close();
+    } catch (closeError) {
+      if (settlementError !== undefined) {
+        throw new AggregateError([settlementError, closeError],
+          'Agent worker could not reconcile relay settlement or close its node runtime');
+      }
+      throw closeError;
+    } finally {
+      this.attached = false;
+    }
+    if (settlementError !== undefined) throw settlementError;
   }
 
   private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
     if (this.closing) return;
     if (dispatch.step_type !== 'agent') return;
+    const relayTransport = (dispatch.spec as Partial<ResolvedKernelAgentStep>).transport === 'relay';
     const running: Promise<void> = this.execute(dispatch).catch((error: unknown) => {
       this.emit('error', error, dispatch);
     });
     this.inFlight.add(running);
-    void running.finally(() => { this.inFlight.delete(running); });
+    void running.finally(() => {
+      this.inFlight.delete(running);
+      if (relayTransport) {
+        void this.reconcileRelaySettlements().catch(error => this.emit('error', error));
+      }
+    });
   };
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
@@ -173,7 +221,7 @@ export class AgentWorker extends EventEmitter {
           }, cwd.directory ?? (spec.transport === 'relay' ? undefined : this.options.runRoot),
             spec.transport === 'relay' ? 'relay' : 'direct',
             { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
-              dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema,
+              attempt: dispatch.attempt, dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema,
               nodeSpawnRuntime: this.options.nodeSpawnRuntime,
               nodeSpawnRuntimeProvider: signal => this.nodeSpawnRuntimeOwner.get(signal) },
             this.options.environment, spec.cli_identity, spec.timeout_ms, spec.resume, spec.secrets,
@@ -230,6 +278,7 @@ export class AgentWorker extends EventEmitter {
       ...(transport === undefined ? {} : { transport }),
     };
 
+    await relayDelivery?.prepareSettlement?.({ attempt: dispatch.attempt, completionReason });
     await this.client.stepComplete(
       dispatch.run_id,
       dispatch.step_id,
@@ -251,6 +300,46 @@ export class AgentWorker extends EventEmitter {
     // Relay delivery is transport state, not execution truth. Only settle it
     // after the journal has accepted the attempt's terminal fact.
     await relayDelivery?.ack();
+  }
+
+  private async reconcileRelaySettlements(): Promise<void> {
+    if (this.settlementReconcile !== undefined) return this.settlementReconcile;
+    const running = this.reconcileRelaySettlementsOnce();
+    this.settlementReconcile = running;
+    void running.finally(() => {
+      if (this.settlementReconcile === running) this.settlementReconcile = undefined;
+    }).catch(() => undefined);
+    return running;
+  }
+
+  private async reconcileRelaySettlementsOnce(): Promise<void> {
+    if (this.options.dataDir === undefined || (this.closing && !this.attached)) return;
+    const claims = await readNodeSpawnClaims(this.options.dataDir);
+    const hasPending = claims.some(entry => entry.claim.result?.settlement !== undefined
+      && entry.claim.result.settlement.settledAt === undefined);
+    if (!hasPending) return;
+    const runtime = await this.nodeSpawnRuntimeOwner.get();
+    let pending: number;
+    try {
+      pending = await reconcileNodeResultSettlements(this.options.dataDir, runtime, this.client);
+    } catch (error) {
+      this.scheduleSettlementReconcile();
+      throw error;
+    }
+    if (this.settlementTimer !== undefined) {
+      clearTimeout(this.settlementTimer);
+      this.settlementTimer = undefined;
+    }
+    if (pending > 0) this.scheduleSettlementReconcile();
+  }
+
+  private scheduleSettlementReconcile(): void {
+    if (this.closing || this.settlementTimer !== undefined) return;
+    this.settlementTimer = setTimeout(() => {
+      this.settlementTimer = undefined;
+      void this.reconcileRelaySettlements().catch(error => this.emit('error', error));
+    }, 5_000);
+    this.settlementTimer.unref();
   }
 
   private async retiredNodeSession(dispatch: StepDispatchEvent, error: string): Promise<void> {

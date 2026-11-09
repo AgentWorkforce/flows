@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { RelayPlacementError } from '@agent-relay/sdk/messaging';
 import { connectCore, LocalNodeSpawnPort, type CoreClient } from '../src/node-spawn-local.js';
 import { RemoteNodeSpawnPort } from '../src/node-spawn-remote.js';
 
@@ -191,6 +192,27 @@ describe('remote node-spawn port', () => {
         placement: { node: 'desktop-1', confirmed: true, state: 'ready' },
         confirmation: { invocationId: 'inv_1', actionName: 'spawn', status: 'completed',
           output: { spawned: true, ready: true, name: 'worker_1', warning: 'spawn_task_unconfirmed' } } }) },
+      commands: { getInvocation: vi.fn() },
+    });
+    await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
+      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      code: 'spawn_task_unconfirmed',
+      cleanup: { id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1',
+        name: 'worker_1', agentId: 'agent_1' },
+    });
+  });
+
+  it('retains cleanup identity from the real SDK placement error receipt', async () => {
+    const receipt = { invocationId: 'inv_1', actionName: 'spawn', status: 'completed',
+      dispatchedNodeId: 'node_1', output: { spawned: true, ready: true,
+        name: 'worker_1', agent_id: 'agent_1', warning: 'spawn_task_unconfirmed' } };
+    const port = new RemoteNodeSpawnPort({
+      agents: { get: async name => ({ id: 'agent_1', name }) },
+      nodes: { list: async () => [] },
+      placement: { spawn: async () => { throw new RelayPlacementError('spawn_failed', 'task unconfirmed', {
+        capability: 'spawn:codex', node: 'desktop-1', attempts: 1,
+        invocationId: 'inv_1', state: 'failed', dispatchState: 'dispatched', receipt,
+      }); } },
       commands: { getInvocation: vi.fn() },
     });
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',

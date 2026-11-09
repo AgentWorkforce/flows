@@ -39,10 +39,11 @@ export async function createRemoteNodeSpawnRuntime(
   const baseUrl = validateNodeSpawnBaseUrl(env.RELAY_BASE_URL?.trim() || 'https://cast.agentrelay.com');
   let RelaycastMessagingClient: new (options: Record<string, unknown>) => RelayRuntimeClient;
   try {
-    ({ RelaycastMessagingClient } = await import('@agent-relay/sdk') as unknown as {
+    ({ RelaycastMessagingClient } = await waitForRuntime(import('@agent-relay/sdk'), options.signal) as unknown as {
       RelaycastMessagingClient: new (options: Record<string, unknown>) => RelayRuntimeClient;
     });
   } catch (error) {
+    if (options.signal?.aborted === true) throw options.signal.reason ?? error;
     throw new NodeSpawnError('Node-spawn transport requires optional @agent-relay/sdk >=17.2.1 <18.',
       'relay_sdk_unavailable', error);
   }
@@ -106,7 +107,7 @@ export function createNodeSpawnRuntimeOwner(
   return { get, close: () => closePromise ??= closeOnce() };
 }
 
-async function waitForRuntime(pending: Promise<NodeSpawnRuntime>, signal?: AbortSignal): Promise<NodeSpawnRuntime> {
+async function waitForRuntime<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal === undefined) return pending;
   let onAbort: (() => void) | undefined;
   const aborted = new Promise<never>((_resolve, reject) => {

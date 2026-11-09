@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
+import { runAgentRelayTask } from '../src/agent-relay-transport.js';
 import type { NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
 import type { NodeSpawnPort } from '../src/node-spawn.js';
 import type { JournalClient } from '../src/journal-client.js';
@@ -26,6 +27,66 @@ afterEach(async () => {
 });
 
 describe('AgentWorker node-spawn runtime ownership', () => {
+  it('closes the shared runtime even when final durable inbox settlement still fails', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'flows-shared-node-runtime-settlement-failure-'));
+    roots.push(dataDir);
+    const ack = vi.fn(async () => { throw new Error('inbox unavailable'); });
+    let spawnedName = '';
+    const runtime: NodeSpawnRuntime = {
+      publisher: { id: 'publisher_1', name: 'flows-publisher' },
+      baseUrl: 'https://cast.agentrelay.com',
+      port: {
+        targets: async () => [],
+        spawn: async input => {
+          spawnedName = input.name;
+          return { id: 'spawn_1', action: 'spawn', status: 'completed',
+            nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_1',
+            spawned: true, ready: true };
+        },
+        status: vi.fn(),
+        release: async () => ({ id: 'release_1', action: 'release', status: 'completed',
+          spawned: false, ready: false, released: true }),
+      },
+      inbox: { inbox: {
+        subscribe: async function* () {
+          yield { id: 'delivery_1', message: { id: 'message_1',
+            from: { id: 'agent_1', name: spawnedName },
+            text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1',
+              step_id: 'edit', dispatch_id: 'dispatch_1234567890', status: 'completed',
+              output: { summary: 'done' } }) } };
+        },
+        ack,
+        fail: vi.fn(async () => ({})),
+      } },
+    };
+    const received = await runAgentRelayTask({
+      cli: 'codex', task: 'Implement the change', runId: 'run_1', stepId: 'edit',
+      idempotencyKey: 'dispatch_1234567890', attempt: 1, dataDir,
+    }, { runtime });
+    await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    owner.get.mockResolvedValue(runtime);
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      journalRead: vi.fn(async () => ({ entries: [{
+        seq: 2, segment_id: 0, entry_type: 'step.completed', run_id: 'run_1',
+        step_id: 'edit', attempt: 1, at_ms: Date.now(), payload: {
+          completionReason: 'success', trajectory_tail: { relay_task: { task_execution: {
+            run_id: 'run_1', step_id: 'edit', dispatch_id: 'dispatch_1234567890',
+            delivery_id: 'delivery_1', message_id: 'message_1',
+          } } },
+        },
+      }] })),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_recovery', pins: {}, dataDir,
+    });
+    await expect(worker.attach()).rejects.toThrow('inbox unavailable');
+    expect(owner.close).toHaveBeenCalledOnce();
+    await expect(worker.close()).resolves.toBeUndefined();
+    expect(ack).toHaveBeenCalledOnce();
+    expect(owner.close).toHaveBeenCalledOnce();
+  });
+
   it('shares one runtime and one concurrent close promise through dispatch drain', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-shared-node-runtime-'));
     roots.push(dataDir);

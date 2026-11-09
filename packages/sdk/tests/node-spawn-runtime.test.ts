@@ -112,6 +112,7 @@ describe('remote node-spawn runtime', () => {
     const pending = createRemoteNodeSpawnRuntime({ RELAY_AGENT_TOKEN: 'agent-token' }, {
       signal: controller.signal,
     });
+    await vi.waitFor(() => expect(relay.me).toHaveBeenCalledOnce());
     controller.abort(new Error('lease lost'));
     await expect(pending).rejects.toThrow('lease lost');
     expect(relay.disconnect).toHaveBeenCalledOnce();
@@ -129,10 +130,23 @@ describe('remote node-spawn runtime', () => {
     const controller = new AbortController();
     const pending = runAgentRelayTask({
       cli: 'codex', task: 'work', runId: 'run_1', stepId: 'step_1',
-      idempotencyKey: 'dispatch_1234567890', dataDir: '/tmp/unused',
+      idempotencyKey: 'dispatch_1234567890', attempt: 1, dataDir: '/tmp/unused',
     }, { agentToken: 'agent-token', signal: controller.signal });
+    await vi.waitFor(() => expect(relay.me).toHaveBeenCalledOnce());
     controller.abort(new Error('lease lost'));
     await expect(pending).rejects.toThrow('lease lost');
     expect(relay.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('bounds a runtime provider that ignores cancellation by the task deadline', async () => {
+    const runtimeProvider = vi.fn((_signal?: AbortSignal) => new Promise<NodeSpawnRuntime>(() => undefined));
+    await expect(runAgentRelayTask({
+      cli: 'codex', task: 'work', runId: 'run_1', stepId: 'step_1',
+      idempotencyKey: 'dispatch_1234567890', attempt: 1, dataDir: '/tmp/unused', timeoutMs: 5,
+    }, { runtimeProvider })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'task_timeout' }),
+    });
+    expect(runtimeProvider).toHaveBeenCalledOnce();
+    expect(runtimeProvider.mock.calls[0]![0]?.aborted).toBe(true);
   });
 });

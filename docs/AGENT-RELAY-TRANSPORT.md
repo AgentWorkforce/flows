@@ -25,6 +25,13 @@ The remote path uses `@agent-relay/sdk >=17.2.1 <18`:
 5. Only after `stepComplete` is durably accepted by the journal does Flows ack
    the inbox delivery. Relay is transport; the journal is execution authority.
 
+Before the journal append, Flows records a settlement intent containing the
+kernel attempt and expected completion reason. The journal's terminal fact
+must contain that reason and the exact Relay delivery and message ids before a
+restart can acknowledge the inbox item. Inbox acknowledgement and rejection
+have independent deadlines; an unconfirmed operation remains in the durable
+outbox and is retried on worker attach, after dispatch drain, and on shutdown.
+
 One worker uses one lazy publisher connection across all of its concurrent
 relay steps. Each step closes only its inbox iterator. The default runtime is
 disconnected after worker shutdown drains every step; cancellation teardown is
@@ -50,14 +57,16 @@ It is never answered by a blind second spawn. The stable worker name provides
 additional collision protection at the node.
 
 The claim also fixes the task's original start time. Resume never grants a new
-deadline. Once a correlated result was already durably observed, a restart has
-at most 30 seconds beyond that original deadline to recover the same unacked
-delivery; it cannot use that window to spawn or extend remote execution.
+execution deadline. Once a correlated result was durably observed before that
+deadline, the validated envelope is part of the claim and can be replayed to
+the journal after any restart delay. Recovery cannot use that fact to spawn or
+extend remote execution.
 
 Lease loss or timeout aborts the inbox wait and attempts exact release. A
 post-spawn verification failure carries any exact identity already proven into
 the same cleanup path. Spawn and release action inputs carry their stable
-idempotency keys. A failed cleanup is recorded as pending in the durable claim,
+idempotency keys. Every release attempt has an independent deadline. A failed
+or unconfirmed cleanup is recorded as pending in the durable claim,
 the attempt remains incomplete for kernel redispatch, and the result remains
 unacked. Kernel redelivery therefore reopens the same claim and retries exact
 release before it can accept a result or issue another spawn. A result delivery

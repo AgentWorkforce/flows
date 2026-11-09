@@ -32,6 +32,13 @@ interface PlacementAck extends RelayInvocation {
   confirmation?: RelayInvocation;
 }
 
+interface PlacementFailure extends Error {
+  code?: unknown;
+  node?: unknown;
+  invocationId?: unknown;
+  receipt?: unknown;
+}
+
 export interface RemoteNodeSpawnClient {
   agents: { get(name: string): Promise<RelayAgent> };
   nodes: { list(options?: Record<string, unknown>): Promise<RelayNode[]> };
@@ -60,23 +67,43 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
       throw new NodeSpawnError('Invalid node-spawn idempotency key', 'spawn_invalid_input');
     }
     const capability = `spawn:${request.harness}`;
-    const ack = await this.client.placement.spawn({
-      capability,
-      ...(request.node === undefined ? {} : { node: request.node }),
-      ...(request.repo === undefined ? {} : { repo: request.repo }),
-      ...(request.sandboxOnly === undefined ? {} : { sandboxOnly: request.sandboxOnly }),
-      failFast: true,
-      confirm: true,
-      verifyReady: true,
-      confirmTimeoutMs: request.timeoutMs ?? 360_000,
-      input: {
-        name: request.name,
-        task: request.task,
-        idempotency_key: request.idempotencyKey,
-        ...(request.model === undefined ? {} : { model: request.model }),
-        ...(request.directory === undefined ? {} : { worker_cwd: request.directory }),
-      },
-    });
+    let ack: PlacementAck;
+    try {
+      ack = await this.client.placement.spawn({
+        capability,
+        ...(request.node === undefined ? {} : { node: request.node }),
+        ...(request.repo === undefined ? {} : { repo: request.repo }),
+        ...(request.sandboxOnly === undefined ? {} : { sandboxOnly: request.sandboxOnly }),
+        failFast: true,
+        confirm: true,
+        verifyReady: true,
+        confirmTimeoutMs: request.timeoutMs ?? 360_000,
+        input: {
+          name: request.name,
+          task: request.task,
+          idempotency_key: request.idempotencyKey,
+          ...(request.model === undefined ? {} : { model: request.model }),
+          ...(request.directory === undefined ? {} : { worker_cwd: request.directory }),
+        },
+      });
+    } catch (error) {
+      const cleanup = placementFailureCleanup(error, request);
+      if (cleanup !== undefined) {
+        const failure = error as PlacementFailure;
+        const output = isRecord(failure.receipt) && isRecord(failure.receipt.output)
+          ? failure.receipt.output : undefined;
+        const taskUnconfirmed = output?.warning === 'spawn_task_unconfirmed'
+          || (isRecord(output?.warning) && output.warning.code === 'spawn_task_unconfirmed');
+        throw new NodeSpawnError(
+          error instanceof Error ? error.message : 'Fleet placement failed after dispatch',
+          taskUnconfirmed ? 'spawn_task_unconfirmed'
+            : nonempty(failure.code) ? failure.code : 'spawn_unconfirmed',
+          error,
+          cleanup,
+        );
+      }
+      throw error;
+    }
     const confirmation = ack.confirmation;
     const output = confirmation?.output;
     const reportedName = nonempty(output?.name) ? output.name : request.name;
@@ -208,6 +235,24 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
     }
     return undefined;
   }
+}
+
+function placementFailureCleanup(error: unknown, request: NodeSpawnRequest): NodeSpawnIdentity | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const failure = error as PlacementFailure;
+  if (!isRecord(failure.receipt)) return undefined;
+  const receipt = failure.receipt;
+  const output = isRecord(receipt.output) ? receipt.output : undefined;
+  const invocationId = nonempty(failure.invocationId) ? failure.invocationId
+    : nonempty(receipt.invocationId) ? receipt.invocationId : undefined;
+  const nodeName = nonempty(failure.node) ? failure.node : request.node;
+  const nodeId = nonempty(receipt.dispatchedNodeId) ? receipt.dispatchedNodeId
+    : nonempty(receipt.handlerNodeId) ? receipt.handlerNodeId : undefined;
+  const agentId = nonempty(output?.agent_id) ? output.agent_id : undefined;
+  const name = nonempty(output?.name) ? output.name : request.name;
+  if (invocationId === undefined || nodeName === undefined || agentId === undefined
+    || output?.spawned !== true || name !== request.name) return undefined;
+  return { id: invocationId, nodeId, nodeName, name, agentId };
 }
 
 function mapInvocation(action: NodeSpawnAction, value: RelayInvocation): NodeSpawnInvocation {

@@ -94,6 +94,20 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 export const nonempty = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
 
+export function validNodeSpawnIdentity(value: unknown): value is NodeSpawnIdentity {
+  if (!isRecord(value)) return false;
+  return [value.id, value.nodeName, value.name, value.agentId].every(nonempty)
+    && (value.nodeId === undefined || nonempty(value.nodeId));
+}
+
+export function validNodeSpawnReceipt(value: unknown): value is NodeSpawnReceipt {
+  return validNodeSpawnIdentity(value)
+    && (value as unknown as Record<string, unknown>).action === 'spawn'
+    && (value as unknown as Record<string, unknown>).status === 'completed'
+    && (value as unknown as Record<string, unknown>).spawned === true
+    && (value as unknown as Record<string, unknown>).ready === true;
+}
+
 export function validSegment(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 200
     && /^[A-Za-z0-9_-]+$/.test(value);
