@@ -22,7 +22,7 @@ import {
   redactText,
   type TranscriptDigest,
 } from './agent-transcript.js';
-import { createNodeSpawnRuntimeOwner, type NodeSpawnRuntime,
+import { createNodeSpawnRuntime, createNodeSpawnRuntimeOwner, type NodeSpawnRuntime,
   type NodeSpawnRuntimeOwner } from './node-spawn-runtime.js';
 import { reconcileNodeResultSettlements } from './node-spawn-settlement.js';
 import { readNodeSpawnClaims } from './node-spawn-state.js';
@@ -48,6 +48,8 @@ export interface AgentWorkerOptions {
   environment?: NodeJS.ProcessEnv;
   /** Optional approved node-spawn runtime; otherwise relay steps use the agent-token fleet client. */
   nodeSpawnRuntime?: NodeSpawnRuntime;
+  /** Explicit Desktop schema-v2 handoff; never discovered from an app-data directory. */
+  serviceCallerFile?: string;
 }
 
 /**
@@ -81,7 +83,16 @@ export class AgentWorker extends EventEmitter {
     private readonly options: AgentWorkerOptions,
   ) {
     super();
-    this.nodeSpawnRuntimeOwner = createNodeSpawnRuntimeOwner(options.nodeSpawnRuntime);
+    this.nodeSpawnRuntimeOwner = createNodeSpawnRuntimeOwner(
+      options.nodeSpawnRuntime,
+      signal => createNodeSpawnRuntime({
+        ...process.env,
+        ...options.environment,
+        ...(options.serviceCallerFile === undefined
+          ? {}
+          : { RELAYFLOW_SERVICE_CALLER_FILE: options.serviceCallerFile }),
+      }, { signal }),
+    );
   }
 
   async attach(): Promise<void> {

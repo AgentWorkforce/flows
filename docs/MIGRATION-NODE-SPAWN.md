@@ -26,19 +26,31 @@ harness. Use `RELAYFLOW_NODE_NAME` for an exact node or
 - `RELAYFLOW_RELAY_BROKER_BIN`, broker connection files, helper sockets, and
   broker health checks are no longer read.
 
-There is deliberately no compatibility fallback to broker 17.2.1. Retained
-local sessions and linked communication remain unavailable until Desktop ships
-the approved core-bridge client package and authorized headless Flows caller.
-The local adapter requires both the Desktop-issued caller name and secret on
-invoke, status, and release; an operator-supplied or borrowed coding-session
-name is not a substitute.
+There is deliberately no compatibility fallback to broker 17.2.1. A local
+Desktop run uses a separately approved schema-v2 service caller. Pass its
+private file explicitly with `--service-caller-file /absolute/caller.json`,
+the SDK `serviceCallerFile` option, or `RELAYFLOW_SERVICE_CALLER_FILE`. Flows
+never scans Desktop's app-data directory. It securely parses and
+challenge-authenticates the handoff through optional
+`@agent-relay/core-bridge` 17.3 or later, then sends no caller name or secret
+on spawn or inbox calls. The handoff's harness and directory scope is enforced
+before dispatch.
+
+`RELAYFLOW_SERVICE_CALLER_FILE` and `RELAY_AGENT_TOKEN` are mutually exclusive:
+the former is local Desktop authority and the latter is remote fleet authority.
+Setting both fails closed. A caller file whose publisher or workspace differs
+from the authenticated core identity is also refused; rotate or reprovision it
+in Desktop rather than editing the file.
 
 ## Hosted and self-hosted execution
 
 Hosted workers use the agent-token fleet path. Self-hosted workers use the
-same path for remote nodes. Selecting the local Desktop bridge is withheld
-until the approved client and service-caller contract land in a Desktop
-release; the bridge adapter remains fail-closed in the meantime.
+same path for remote nodes. The local Desktop mode requires a Desktop release
+whose `hello.methods` contains the complete service-caller challenge, identity,
+spawn, invocation-scoped inbox, settlement, close and disconnect contract.
+Each result subscription uses its own authenticated connection. Flows closes
+that iterator and connection before settling the item through another fresh
+authenticated connection. Older Desktop builds fail closed before dispatch.
 
 Self-hosted Flows licensing is owned by relaycontrol's signed offline licence
 design. This SDK does not invent an entitlement store; deployments must fail

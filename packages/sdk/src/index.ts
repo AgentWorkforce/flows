@@ -253,13 +253,15 @@ export {
 } from './node-spawn.js';
 export {
   LocalNodeSpawnPort,
-  connectCore,
-  coreSocketPath,
-  type CoreClient,
-  type LocalNodeSpawnCaller,
+  loadCoreBridge,
+  type CallerDescriptor,
+  type CoreBridgeApi,
+  type CoreBridgeClient,
 } from './node-spawn-local.js';
 export { RemoteNodeSpawnPort, type RemoteNodeSpawnClient } from './node-spawn-remote.js';
 export {
+  createLocalNodeSpawnRuntime,
+  createNodeSpawnRuntime,
   createRemoteNodeSpawnRuntime,
   type NodeSpawnPublisher,
   type NodeSpawnRuntime,

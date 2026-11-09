@@ -142,14 +142,16 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   { verb: 'resume', argv: ['resume', RUN_ID], variant: 'resume' },
   {
     verb: 'resume',
-    argv: ['resume', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8', '--no-spawn',
+    argv: ['resume', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8',
+      '--service-caller-file', '/tmp/caller.json', '--no-spawn',
       '--no-observer-link', '--cloud-mirror', '--detach', '--allow-human-influenced', RUN_ID],
     variant: 'resume',
   },
   { verb: 'run', argv: ['run', 'flow.yaml'], variant: 'run' },
   {
     verb: 'run',
-    argv: ['run', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8', '--no-spawn',
+    argv: ['run', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8',
+      '--service-caller-file', '/tmp/caller.json', '--no-spawn',
       '--no-observer-link', '--cloud-mirror', '--detach', '--allow-human-influenced', '--input', '{"a":1}', 'review.flow.ts'],
     variant: 'run',
   },

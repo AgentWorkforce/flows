@@ -3,7 +3,7 @@ import { claimNodeSpawn, recordNodeSpawn, type NodeSpawnClaim } from './node-spa
 import { nodeResultInstruction, waitForNodeResult } from './node-spawn-result.js';
 import { durableNodeResultDelivery } from './node-spawn-settlement.js';
 import { waitForNodeOperation, waitForNodeSpawn } from './node-spawn-deadline.js';
-import { createRemoteNodeSpawnRuntime, type NodeSpawnRuntime } from './node-spawn-runtime.js';
+import { createNodeSpawnRuntime, type NodeSpawnRuntime } from './node-spawn-runtime.js';
 import { NodeSpawnError, nonempty, validIdempotencyKey,
   validNodeSpawnIdentity, validNodeSpawnReceipt,
   type NodeSpawnIdentity, type NodeSpawnReceipt } from './node-spawn.js';
@@ -27,6 +27,8 @@ export interface AgentRelayTaskRequest {
 export interface AgentRelayEnv {
   baseUrl?: string;
   agentToken?: string;
+  /** Absolute Desktop schema-v2 caller.json path; mutually exclusive with agentToken. */
+  serviceCallerFile?: string;
   node?: string;
   repo?: string;
   sandboxOnly?: boolean;
@@ -88,10 +90,13 @@ export async function runAgentRelayTask(
     } else if (options.runtimeProvider !== undefined) {
       runtime = await waitForNodeOperation(options.runtimeProvider(acquisitionSignal), acquisitionSignal);
     } else {
-      runtime = await createRemoteNodeSpawnRuntime({
+      runtime = await createNodeSpawnRuntime({
         ...process.env,
         ...(options.baseUrl === undefined ? {} : { RELAY_BASE_URL: options.baseUrl }),
         ...(options.agentToken === undefined ? {} : { RELAY_AGENT_TOKEN: options.agentToken }),
+        ...(options.serviceCallerFile === undefined
+          ? {}
+          : { RELAYFLOW_SERVICE_CALLER_FILE: options.serviceCallerFile }),
         ...(options.node === undefined ? {} : { RELAYFLOW_NODE_NAME: options.node }),
         ...(options.repo === undefined ? {} : { RELAYFLOW_NODE_REPO: options.repo }),
         ...(options.sandboxOnly === undefined

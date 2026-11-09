@@ -76,9 +76,13 @@
     "directory": "packages/sdk"
   },
   "peerDependencies": {
+    "@agent-relay/core-bridge": ">=17.3.0 <18",
     "@agent-relay/sdk": ">=17.2.1 <18"
   },
   "peerDependenciesMeta": {
+    "@agent-relay/core-bridge": {
+      "optional": true
+    },
     "@agent-relay/sdk": {
       "optional": true
     }

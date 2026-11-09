@@ -1,22 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RelayPlacementError } from '@agent-relay/sdk/messaging';
-import { connectCore, LocalNodeSpawnPort, type CoreClient } from '../src/node-spawn-local.js';
+import {
+  LocalNodeSpawnPort,
+  type CoreBridgeApi,
+  type CoreBridgeClient,
+} from '../src/node-spawn-local.js';
 import { RemoteNodeSpawnPort } from '../src/node-spawn-remote.js';
 
-describe('local node-spawn port', () => {
-  it('refuses Windows before opening an unauthenticated named pipe', async () => {
-    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
-    try {
-      await expect(connectCore()).rejects.toMatchObject({ code: 'untrusted_core_socket' });
-    } finally {
-      platform.mockRestore();
-    }
-  });
+interface TestCore {
+  call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
+}
 
-  it('uses the bridge v2 spawn methods and exact release identity', async () => {
+function localPort(core: TestCore): LocalNodeSpawnPort {
+  const client = { hello: { methods: [] }, close() {} } satisfies CoreBridgeClient;
+  const bridge = {
+    spawnTargets: () => core.call('spawn.targets'),
+    spawnInvoke: (_client, params) => core.call('spawn.invoke', params),
+    spawnStatus: (_client, params) => core.call('spawn.status', params),
+    spawnRelease: (_client, params) => core.call('spawn.release', params),
+  } satisfies Pick<CoreBridgeApi, 'spawnTargets' | 'spawnInvoke' | 'spawnStatus' | 'spawnRelease'>;
+  return new LocalNodeSpawnPort(client, bridge, {
+    harnesses: ['codex'],
+    directoryScope: ['/workspace'],
+  });
+}
+
+describe('local node-spawn port', () => {
+  it('uses bound bridge v2 spawn methods with no raw caller credential and exact release identity', async () => {
     const calls: Array<[string, Record<string, unknown> | undefined]> = [];
-    const core: CoreClient = {
-      close() {},
+    const core: TestCore = {
       async call<T>(method: string, params?: Record<string, unknown>): Promise<T> {
         calls.push([method, params]);
         if (method === 'spawn.targets') return { targets: [{ id: 'node_1', name: 'desktop-1', live: true,
@@ -28,35 +40,26 @@ describe('local node-spawn port', () => {
           ready: false, released: true, task_unconfirmed: false } as T;
       },
     };
-    const port = new LocalNodeSpawnPort(core, {
-      name: 'authorized-caller',
-      secret: 'desktop-service-secret',
-    });
-    expect(JSON.stringify(port)).not.toContain('desktop-service-secret');
-    expect(Object.values(port)).not.toContain('desktop-service-secret');
+    const port = localPort(core);
     const receipt = await port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
       directory: '/workspace', idempotencyKey: 'dispatch_1234567890' });
     await port.release({ receipt, idempotencyKey: 'release_1234567890' });
-    expect(calls[1]).toEqual(['spawn.invoke', expect.objectContaining({ caller_name: 'authorized-caller',
-      caller_secret: 'desktop-service-secret', node_id: 'node_1', name: 'worker_1' })]);
-    expect(calls[2]).toEqual(['spawn.status', expect.objectContaining({ caller_name: 'authorized-caller',
-      caller_secret: 'desktop-service-secret', invocation_id: 'inv_1' })]);
+    expect(calls[1]).toEqual(['spawn.invoke', expect.objectContaining({ node_id: 'node_1', name: 'worker_1' })]);
+    expect(calls[2]).toEqual(['spawn.status', expect.objectContaining({ invocation_id: 'inv_1' })]);
     expect(calls[3]).toEqual(['spawn.release', expect.objectContaining({
-      expected_agent_id: 'agent_1', caller_name: 'authorized-caller',
-      caller_secret: 'desktop-service-secret', node_id: 'node_1', node_name: 'desktop-1',
+      expected_agent_id: 'agent_1', node_id: 'node_1', node_name: 'desktop-1',
       name: 'worker_1', idempotency_key: 'release_1234567890' })]);
-  });
-
-  it('refuses a local service caller without its Desktop-issued secret', () => {
-    const core: CoreClient = { close() {}, async call<T>(): Promise<T> { throw new Error('unused'); } };
-    expect(() => new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: ' ' }))
-      .toThrow(expect.objectContaining({ code: 'caller_required' }));
+    for (const [, params] of calls) {
+      if (params === undefined) continue;
+      expect(params).not.toHaveProperty('caller_name');
+      expect(params).not.toHaveProperty('caller_secret');
+    }
   });
 
   it('refuses local-only fields the Desktop core bridge cannot preserve', async () => {
     const calls = vi.fn();
-    const core: CoreClient = { close() {}, async call<T>(): Promise<T> { calls(); throw new Error('unused'); } };
-    const port = new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: 'desktop-service-secret' });
+    const core: TestCore = { async call<T>(): Promise<T> { calls(); throw new Error('unused'); } };
+    const port = localPort(core);
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
       model: 'codex-medium', idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
       code: 'spawn_invalid_input',
@@ -64,12 +67,25 @@ describe('local node-spawn port', () => {
     expect(calls).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { harness: 'claude', directory: '/workspace', label: 'harness' },
+    { harness: 'codex', directory: '/other', label: 'directory' },
+    { harness: 'codex', directory: '/workspace-sibling', label: 'directory prefix' },
+  ])('refuses a $label outside the caller-file scope before bridge dispatch', async request => {
+    const calls = vi.fn();
+    const port = localPort({ async call<T>(): Promise<T> { calls(); throw new Error('unused'); } });
+    await expect(port.spawn({ name: 'worker_1', harness: request.harness, task: 'work',
+      directory: request.directory, idempotencyKey: 'dispatch_1234567890' }))
+      .rejects.toMatchObject({ code: 'outside_scope' });
+    expect(calls).not.toHaveBeenCalled();
+  });
+
   it('refuses local targets without an exact string id instead of fabricating one', async () => {
-    const core: CoreClient = { close() {}, async call<T>(): Promise<T> {
+    const core: TestCore = { async call<T>(): Promise<T> {
       return { targets: [{ id: undefined, name: 'desktop-1', live: true,
         handlers_live: true, capabilities: ['spawn:codex'] }] } as T;
     } };
-    const port = new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: 'desktop-service-secret' });
+    const port = localPort(core);
     await expect(port.targets()).rejects.toMatchObject({ code: 'invalid_core_response' });
   });
 
@@ -78,16 +94,13 @@ describe('local node-spawn port', () => {
     { live: true, handlers_live: false },
   ])('does not dispatch to an explicitly named node unless both liveness checks pass (%j)', async readiness => {
     const calls = vi.fn();
-    const core: CoreClient = { close() {}, async call<T>(method: string): Promise<T> {
+    const core: TestCore = { async call<T>(method: string): Promise<T> {
       calls(method);
       if (method === 'spawn.targets') return { targets: [{ id: 'node_1', name: 'desktop-1',
         ...readiness, stale: false, capabilities: ['spawn:codex'] }] } as T;
       throw new Error('spawn must not be invoked');
     } };
-    const port = new LocalNodeSpawnPort(core, {
-      name: 'authorized-caller',
-      secret: 'desktop-service-secret',
-    });
+    const port = localPort(core);
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', node: 'desktop-1',
       directory: '/workspace', idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
       code: 'no_eligible_node',
@@ -97,7 +110,7 @@ describe('local node-spawn port', () => {
 
   it('stops polling on a denied terminal status', async () => {
     const status = vi.fn();
-    const core: CoreClient = { close() {}, async call<T>(method: string): Promise<T> {
+    const core: TestCore = { async call<T>(method: string): Promise<T> {
       if (method === 'spawn.targets') return { targets: [{ id: 'node_1', name: 'desktop-1', live: true,
         handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
       if (method === 'spawn.invoke') return { id: 'inv_1', status: 'pending', spawned: false,
@@ -109,14 +122,14 @@ describe('local node-spawn port', () => {
       }
       throw new Error(`unexpected core method: ${method}`);
     } };
-    const port = new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: 'desktop-service-secret' });
+    const port = localPort(core);
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
       idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({ code: 'outside_scope' });
     expect(status).toHaveBeenCalledOnce();
   });
 
   it('refuses a completed local spawn whose returned node identity changed', async () => {
-    const core: CoreClient = { close() {}, async call<T>(method: string): Promise<T> {
+    const core: TestCore = { async call<T>(method: string): Promise<T> {
       if (method === 'spawn.targets') return { targets: [
         { id: 'node_1', name: 'desktop-1', live: true,
           handlers_live: true, stale: false, capabilities: ['spawn:codex'] },
@@ -128,7 +141,7 @@ describe('local node-spawn port', () => {
       return { id: 'inv_1', status: 'completed', node_id: 'node_other', agent_id: 'agent_1',
         name: 'worker_1', spawned: true, ready: true, task_unconfirmed: false } as T;
     } };
-    const port = new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: 'desktop-service-secret' });
+    const port = localPort(core);
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
       idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
       code: 'spawn_identity_mismatch',
@@ -137,7 +150,7 @@ describe('local node-spawn port', () => {
   });
 
   it('refuses a completed local spawn without explicit task delivery confirmation', async () => {
-    const core: CoreClient = { close() {}, async call<T>(method: string): Promise<T> {
+    const core: TestCore = { async call<T>(method: string): Promise<T> {
       if (method === 'spawn.targets') return { targets: [{ id: 'node_1', name: 'desktop-1', live: true,
         handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
       if (method === 'spawn.invoke') return { id: 'inv_1', status: 'pending', spawned: false,
@@ -146,7 +159,7 @@ describe('local node-spawn port', () => {
         agent_id: 'agent_1', name: 'worker_1', spawned: true, ready: true } as T;
       throw new Error(`unexpected core method: ${method}`);
     } };
-    const port = new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: 'desktop-service-secret' });
+    const port = localPort(core);
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
       idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
       code: 'spawn_task_unconfirmed',

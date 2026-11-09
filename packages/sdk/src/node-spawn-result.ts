@@ -20,9 +20,18 @@ export interface NodeResultCorrelation {
   dispatchId: string;
 }
 
+export interface NodeResultTerminalFailure {
+  code: 'result_too_large' | 'result_write_failed';
+  bytes: number;
+  limit: number;
+}
+
 interface InboxItem {
   id: string;
   message: { id: string; text: string; from: { id?: string; name?: string } };
+  terminalFailure?: NodeResultTerminalFailure;
+  /** Local Desktop delivery teardown; settlement uses a separate authenticated connection after this resolves. */
+  settlementReady?: Promise<{ failure?: unknown }>;
 }
 
 export interface NodeResultInboxClient {
@@ -77,6 +86,11 @@ export async function waitForNodeResult(
       const item = next.value;
       signal?.throwIfAborted();
       if (item.message.from.id !== expected.agentId || item.message.from.name !== expected.agentName) continue;
+      if (item.terminalFailure !== undefined) {
+        const failure = item.terminalFailure;
+        const reason = `${failure.code} (bytes=${failure.bytes}, limit=${failure.limit})`;
+        return rejectedDelivery(client, item, expected, reason);
+      }
       if (!item.message.text.startsWith(NODE_RESULT_PREFIX)) continue;
       let raw: unknown;
       try { raw = JSON.parse(item.message.text.slice(NODE_RESULT_PREFIX.length)); }
@@ -85,22 +99,14 @@ export async function waitForNodeResult(
       try { envelope = readNodeResult(raw, expected); }
       catch (error) {
         const reason = error instanceof Error ? error.message : 'Malformed Relayflows result';
-        return {
-          inboxItemId: item.id,
-          messageId: item.message.id,
-          envelope: { version: 1, run_id: expected.runId, step_id: expected.stepId,
-            dispatch_id: expected.dispatchId, status: 'failed', error: reason },
-          settlementAction: 'fail',
-          ack: async () => { await client.inbox.fail({ inboxItemId: item.id, error: reason, retry: false,
-            metadata: { relayflows_result: 'rejected' } }); },
-        };
+        return rejectedDelivery(client, item, expected, reason);
       }
       return {
         inboxItemId: item.id,
         messageId: item.message.id,
         envelope,
         settlementAction: 'ack',
-        ack: async () => { await client.inbox.ack({ inboxItemId: item.id, state: 'read',
+        ack: async () => { await awaitSettlementReady(item); await client.inbox.ack({ inboxItemId: item.id, state: 'read',
           metadata: { relayflows_result: 'journaled' } }); },
       };
     }
@@ -119,6 +125,28 @@ export async function waitForNodeResult(
       void close().catch(() => undefined);
     }
   }
+}
+
+function rejectedDelivery(
+  client: NodeResultInboxClient,
+  item: InboxItem,
+  expected: NodeResultCorrelation,
+  reason: string,
+): NodeResultDelivery {
+  return {
+    inboxItemId: item.id,
+    messageId: item.message.id,
+    envelope: { version: 1, run_id: expected.runId, step_id: expected.stepId,
+      dispatch_id: expected.dispatchId, status: 'failed', error: reason },
+    settlementAction: 'fail',
+    ack: async () => { await awaitSettlementReady(item); await client.inbox.fail({ inboxItemId: item.id, error: reason, retry: false,
+      metadata: { relayflows_result: 'rejected' } }); },
+  };
+}
+
+async function awaitSettlementReady(item: InboxItem): Promise<void> {
+  const teardown = await item.settlementReady;
+  if (teardown?.failure !== undefined) throw teardown.failure;
 }
 
 async function abortableNext<T>(

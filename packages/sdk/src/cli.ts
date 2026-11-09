@@ -115,8 +115,8 @@ export type ParsedArgs =
   | { command: 'schedules'; json: boolean }
   | { command: 'unschedule'; scheduleId: string; json: boolean }
   | { command: 'check'; json: boolean; watch: boolean; explainWarnings: boolean; daemonValidation: DaemonValidationMode; value: string }
-  | { command: 'run'; detach?: boolean; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
-  | { command: 'resume'; detach?: boolean; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'run'; detach?: boolean; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; serviceCallerFile: string | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'resume'; detach?: boolean; localAgent: boolean; agentCapacity: number | undefined; serviceCallerFile: string | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'cloud-answer'; runId: string; answer: boolean; json: boolean; note?: string; source?: string }
   | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
   | RunsArgs
@@ -151,14 +151,14 @@ const USAGE = [
   'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json] [--detach]',
   'flows check [--against-daemon|--no-daemon-check] [--watch] [--json] [--explain-warnings] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>] [--service-caller-file <caller.json>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] [--budget-minutes <n>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] [--budget-minutes <n>] <flow.ts> --input <inline-json-or-file>',
   'flows sync [--json] [--dry-run] [--dir <path>] <run-id>',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>] [--service-caller-file <caller.json>]] <flow.ts> --input <inline-json-or-file>',
   'flows run <name> [--input <inline-json-or-file>]',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
-  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
+  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>] [--service-caller-file <caller.json>]] <run-id>',
   'flows answer --cloud [--json] [--note <text>] [--source <path>] <run-id> <yes|no>',
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
@@ -445,6 +445,7 @@ export async function runCli(
     ...(parsed.command === 'run' && parsed.reuseFromRunId !== undefined ? { reuseFromRunId: parsed.reuseFromRunId } : {}),
     localAgent: parsed.localAgent,
     ...(parsed.agentCapacity === undefined ? {} : { agentCapacity: parsed.agentCapacity }),
+    ...(parsed.serviceCallerFile === undefined ? {} : { serviceCallerFile: parsed.serviceCallerFile }),
     onProgress: showProgress,
     ...(observer === undefined && mirror === undefined && options.detachedReceipt === undefined ? {} : {
       onJournalEntry: (entry: JournalEvent) => {
@@ -761,6 +762,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let localAgent = false;
   let detach = false;
   let agentCapacity: number | undefined;
+  let serviceCallerFile: string | undefined;
   let allowHumanInfluenced = false;
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
@@ -811,6 +813,12 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       if (command === 'check' || agentCapacity !== undefined || value === undefined || !/^[0-9]+$/.test(value)) return undefined;
       agentCapacity = Number(value);
       if (!isAgentCapacity(agentCapacity)) return undefined;
+      continue;
+    }
+    if (argument === '--service-caller-file') {
+      const value = args[++index];
+      if (command === 'check' || serviceCallerFile !== undefined || value === undefined || value.startsWith('-')) return undefined;
+      serviceCallerFile = value;
       continue;
     }
     if (argument === '--against-daemon' || argument === '--no-daemon-check') {
@@ -890,6 +898,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (positionals.length !== 1) return undefined;
   // It sizes the in-process worker, so without `--local-agent` it describes nothing.
   if (agentCapacity !== undefined && !localAgent) return undefined;
+  if (serviceCallerFile !== undefined && !localAgent) return undefined;
 
   if (bucket !== undefined && (cloud || !parseDigestReference(positionals[0]!))) return undefined;
   if (cloud) {
@@ -898,7 +907,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     // observer-link opt-out -- describes nothing there and is refused rather
     // than ignored. `--input` is the authored body's argument and travels with
     // the source, so it is accepted exactly where a local run accepts it.
-    if (detach || allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || cloudMirror
+    if (detach || allowHumanInfluenced || sawDataDir || !spawn || localAgent || serviceCallerFile !== undefined || noObserverLink || cloudMirror
       || reuseFromRunId !== undefined) return undefined;
     if (sawInput && !isAuthoredFlowPath(positionals[0]!)) return undefined;
     return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode, noConnect, budgetMinutes };
@@ -912,8 +921,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
         daemonValidation: daemonValidation ?? (process.env['FLOWS_NO_DAEMON_CHECK'] === '1' ? 'off'
           : process.env['FLOWS_CHECK_AGAINST_DAEMON'] === '1' ? 'required' : 'auto') }
     : command === 'run'
-      ? { command, ...(detach ? { detach } : {}), bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! }
-      : { command, ...(detach ? { detach } : {}), localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! };
+      ? { command, ...(detach ? { detach } : {}), bucket, reuseFromRunId, localAgent, agentCapacity, serviceCallerFile, dataDir, input, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! }
+      : { command, ...(detach ? { detach } : {}), localAgent, agentCapacity, serviceCallerFile, dataDir, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! };
 }
 
 /**

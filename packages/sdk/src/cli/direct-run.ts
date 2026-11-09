@@ -87,7 +87,7 @@ export async function runDirectFlow(
     if (options.localAgent) {
       localAgent = await attachLocalAgent(
         client, dataDir, options.onPtyReady, authoredLocalAgentStream(admissionIdentity), workerCapacity,
-        undefined, [], agentEnvironment,
+        undefined, [], agentEnvironment, options.serviceCallerFile,
       );
       // A session owns one worker registration. Keep the workspace-free LLM
       // worker on its own connection so it cannot replace the agent worker.

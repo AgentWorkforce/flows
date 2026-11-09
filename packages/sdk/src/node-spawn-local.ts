@@ -1,11 +1,7 @@
-import { existsSync, lstatSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, isAbsolute, join } from 'node:path';
-import { createConnection, type Socket } from 'node:net';
+import { isAbsolute, relative, sep } from 'node:path';
+
 import {
   NodeSpawnError,
-  isRecord,
-  nonempty,
   normalizeNodeSpawnStatus,
   terminalStatus,
   type NodeReleaseRequest,
@@ -18,170 +14,172 @@ import {
   validIdempotencyKey,
 } from './node-spawn.js';
 
-const BRIDGE_VERSION = 2;
-const DEFAULT_TIMEOUT_MS = 15_000;
-
-export interface CoreClient {
-  call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
+/** The structural core-bridge surface Flows consumes. Kept here so the package stays optional. */
+export interface CoreBridgeClient {
+  readonly hello: { methods: string[] };
   close(): void;
 }
 
-export function coreSocketPath(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
-  const fallback = join(home, '.agentworkforce', 'desktop', 'core.sock');
-  const configured = env.AGENT_RELAY_CORE_SOCKET?.trim();
-  if (!configured) return fallback;
-  return isAbsolute(configured) ? configured : join(dirname(fallback), configured);
-}
-
-function verifySocket(socket: string): void {
-  if (typeof process.getuid !== 'function') return;
-  const directory = dirname(socket);
-  const entry = lstatSync(directory);
-  const target = statSync(directory);
-  if (entry.uid !== process.getuid() || target.uid !== process.getuid()
-    || !target.isDirectory() || (target.mode & 0o022) !== 0) {
-    throw new NodeSpawnError('The Agent Relay core socket directory is not private to this user', 'untrusted_core_socket');
-  }
-  const file = lstatSync(socket);
-  if (!file.isSocket() || file.uid !== process.getuid() || (file.mode & 0o077) !== 0) {
-    throw new NodeSpawnError('The Agent Relay core socket is not private to this user', 'untrusted_core_socket');
-  }
-}
-
-/** Connects to Desktop's credential-holding core bridge; never starts a daemon. */
-export async function connectCore(socket = coreSocketPath(), timeoutMs = DEFAULT_TIMEOUT_MS): Promise<CoreClient | undefined> {
-  if (process.platform === 'win32') {
-    throw new NodeSpawnError(
-      'Local node spawn is unavailable on Windows until the Desktop pipe server can be authenticated',
-      'untrusted_core_socket',
-    );
-  }
-  if (!existsSync(socket)) return undefined;
-  verifySocket(socket);
-  const stream = await openSocket(socket, timeoutMs);
-  if (!stream) return undefined;
-  let nextId = 1;
-  let buffer = '';
-  let closed = false;
-  const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
-  const fail = (error: Error) => {
-    closed = true;
-    for (const waiter of pending.values()) { clearTimeout(waiter.timer); waiter.reject(error); }
-    pending.clear();
+export interface CallerDescriptor {
+  readonly schema: 'agent-relay-service-caller/2';
+  readonly schemaVersion: 2;
+  readonly auth: unknown;
+  readonly callerId: string;
+  readonly callerName: string;
+  readonly publisher: { readonly id: string; readonly name: string };
+  readonly workspace: {
+    readonly site_url: string;
+    readonly base_url: string;
+    readonly workspace_id: string;
+    readonly relaycast_workspace_id: string;
   };
-  stream.setEncoding('utf8');
-  stream.on('data', (chunk: string) => {
-    buffer += chunk;
-    for (let newline = buffer.indexOf('\n'); newline >= 0; newline = buffer.indexOf('\n')) {
-      const line = buffer.slice(0, newline);
-      buffer = buffer.slice(newline + 1);
-      let message: { id?: unknown; result?: unknown; error?: { message?: string } };
-      try { message = JSON.parse(line); } catch { continue; }
-      if (typeof message.id !== 'number') continue;
-      const waiter = pending.get(message.id);
-      if (!waiter) continue;
-      pending.delete(message.id);
-      clearTimeout(waiter.timer);
-      if (message.error) waiter.reject(new NodeSpawnError(message.error.message ?? 'The Agent Relay core refused the request'));
-      else waiter.resolve(message.result ?? null);
-    }
-  });
-  stream.on('error', error => fail(error));
-  stream.on('close', () => fail(new NodeSpawnError('The Agent Relay core closed the connection')));
-  const client: CoreClient = {
-    call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-      if (closed) return Promise.reject(new NodeSpawnError('The Agent Relay core connection is closed'));
-      const id = nextId++;
-      return new Promise<T>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          pending.delete(id);
-          reject(new NodeSpawnError(`The Agent Relay core did not answer ${method} in time`, 'core_timeout'));
-        }, timeoutMs);
-        pending.set(id, { resolve: value => resolve(value as T), reject, timer });
-        stream.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
-      });
-    },
-    close() { closed = true; stream.destroy(); },
+  readonly account: { readonly user_id: string };
+  readonly credential: unknown;
+  readonly createdAt: string;
+  readonly rotatedAt?: string;
+  readonly expiresAt: string;
+  readonly harnesses: readonly string[];
+  readonly directoryScope: readonly string[];
+  readonly ownsOnly: boolean;
+  readonly socket: string;
+  readonly inbox: {
+    readonly transport: string;
+    readonly open: string;
+    readonly next: string;
+    readonly ack: string;
+    readonly fail: string;
+    readonly close: string;
+    readonly disconnect: string;
   };
-  try {
-    const hello = await client.call<{ bridge_version?: unknown }>('hello', { bridge_version: BRIDGE_VERSION });
-    if (hello.bridge_version !== BRIDGE_VERSION) {
-      throw new NodeSpawnError('The process at the core socket does not speak Agent Relay bridge v2', 'core_version_mismatch');
-    }
-  } catch (error) { client.close(); throw error; }
-  return client;
+  readonly desktopVersion: string;
 }
 
-async function openSocket(address: string, timeoutMs: number): Promise<Socket | undefined> {
-  return new Promise(resolve => {
-    const socket = createConnection(address);
-    const timer = setTimeout(() => { socket.destroy(); resolve(undefined); }, timeoutMs);
-    socket.once('connect', () => { clearTimeout(timer); resolve(socket); });
-    socket.once('error', () => { clearTimeout(timer); resolve(undefined); });
-  });
+interface CoreTarget {
+  id: string;
+  name: string;
+  live: boolean;
+  handlers_live: boolean;
+  stale: boolean;
+  capabilities: string[];
+  active_agents: number;
+  reserved_agents: number;
+  max_agents: number;
 }
 
 interface CoreInvocation {
   id: string;
-  agent_id?: string;
+  agent_id: string | null;
   status: string;
-  node_id?: string;
-  name?: string;
+  node_id: string | null;
+  name: string | null;
   spawned: boolean;
   ready: boolean;
-  released?: boolean;
+  released: boolean;
   task_unconfirmed: boolean;
-  error_code?: string;
+  error_code: string | null;
 }
 
-/** Desktop-issued identity for the authorized headless Flows service caller. */
-export interface LocalNodeSpawnCaller {
-  name: string;
-  secret: string;
+export interface CoreInboxDelivery {
+  item_id: string;
+  message_id: string;
+  sender: { id: string; name: string };
+  text?: string;
+  failure?: { code: 'result_too_large' | 'result_write_failed'; bytes: number; limit: number };
+  invocation_id: string;
+  sent_at: string;
 }
 
-const callerSecrets = new WeakMap<LocalNodeSpawnPort, string>();
+/** Typed API required from @agent-relay/core-bridge's schema-v2 release. */
+export interface CoreBridgeApi {
+  connectCore(options?: { socket?: string; signal?: AbortSignal }): Promise<CoreBridgeClient>;
+  readCallerDescriptor(path: string): Promise<CallerDescriptor>;
+  authenticate(client: CoreBridgeClient, credential: unknown, options?: { signal?: AbortSignal }): Promise<unknown>;
+  requireServiceCallerMethods(client: CoreBridgeClient): void;
+  assertServiceCallerIdentity(
+    descriptor: CallerDescriptor,
+    identity: Awaited<ReturnType<CoreBridgeApi['serviceCallerIdentity']>>,
+  ): void;
+  serviceCallerIdentity(client: CoreBridgeClient, options?: { signal?: AbortSignal }): Promise<{
+    publisher: { id: string; name: string };
+    node: { id: string; name: string };
+    base_url: string;
+    workspace_id: string;
+    relaycast_workspace_id: string;
+  }>;
+  spawnTargets(client: CoreBridgeClient, options?: { signal?: AbortSignal }): Promise<{ targets: CoreTarget[] }>;
+  spawnInvoke(client: CoreBridgeClient, params: Record<string, unknown>, options?: { signal?: AbortSignal; actionTimeoutMs?: number }): Promise<CoreInvocation>;
+  spawnStatus(client: CoreBridgeClient, params: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<CoreInvocation>;
+  spawnRelease(client: CoreBridgeClient, params: Record<string, unknown>, options?: { signal?: AbortSignal; actionTimeoutMs?: number }): Promise<CoreInvocation>;
+  serviceCallerInboxOpen(client: CoreBridgeClient, invocationId: string, options?: { signal?: AbortSignal }): Promise<{ iterator_id: string }>;
+  serviceCallerInboxNext(client: CoreBridgeClient, iteratorId: string, timeoutMs: number, options?: { signal?: AbortSignal }): Promise<{ delivery: CoreInboxDelivery | null }>;
+  serviceCallerInboxAck(client: CoreBridgeClient, itemId: string, options?: { signal?: AbortSignal }): Promise<unknown>;
+  serviceCallerInboxFail(client: CoreBridgeClient, itemId: string, options?: { signal?: AbortSignal }): Promise<unknown>;
+  serviceCallerInboxClose(client: CoreBridgeClient, iteratorId: string, options?: { signal?: AbortSignal }): Promise<unknown>;
+  serviceCallerDisconnect(client: CoreBridgeClient, options?: { signal?: AbortSignal }): Promise<unknown>;
+}
 
-/**
- * Local native-spawn adapter. The caller identity is deliberately explicit:
- * this class never borrows a Desktop registration or provisions a service
- * caller. A core without the spawn-callers plugin refuses the secret.
- */
-export class LocalNodeSpawnPort implements NodeSpawnPort {
-  private readonly callerName: string;
-
-  constructor(private readonly core: CoreClient, caller: LocalNodeSpawnCaller) {
-    if (!caller.name.trim() || !caller.secret.trim()) {
-      throw new NodeSpawnError(
-        'Local node spawn requires an explicitly authorized service caller',
-        'caller_required',
-      );
-    }
-    this.callerName = caller.name;
-    callerSecrets.set(this, caller.secret);
+/** Loads the optional bridge without making remote-only installs depend on Desktop support. */
+export async function loadCoreBridge(): Promise<CoreBridgeApi> {
+  const specifier = '@agent-relay/core-bridge';
+  try {
+    return await import(specifier) as unknown as CoreBridgeApi;
+  } catch (error) {
+    throw new NodeSpawnError(
+      'Local Desktop node spawn requires optional @agent-relay/core-bridge with schema-v2 service-caller support',
+      'core_bridge_unavailable',
+      error,
+    );
   }
+}
+
+/** Native local spawn adapter over one already authenticated schema-v2 bridge connection. */
+export class LocalNodeSpawnPort implements NodeSpawnPort {
+  constructor(
+    private readonly core: CoreBridgeClient,
+    private readonly bridge: Pick<CoreBridgeApi, 'spawnTargets' | 'spawnInvoke' | 'spawnStatus' | 'spawnRelease'>,
+    private readonly scope: Pick<CallerDescriptor, 'harnesses' | 'directoryScope'>,
+  ) {}
 
   async targets(): Promise<NodeSpawnTarget[]> {
-    const result = await this.core.call<{ targets: Array<Record<string, unknown>> }>('spawn.targets');
-    if (!isRecord(result) || !Array.isArray(result.targets)) {
+    const result = await this.bridge.spawnTargets(this.core);
+    if (!result || !Array.isArray(result.targets)) {
       throw new NodeSpawnError('The core returned invalid spawn targets', 'invalid_core_response');
     }
     return result.targets.map(value => {
-      if (!isRecord(value) || !nonempty(value.id) || !nonempty(value.name)) {
+      if (!value || typeof value.id !== 'string' || value.id === ''
+        || typeof value.name !== 'string' || value.name === '') {
         throw new NodeSpawnError('The core returned a spawn target without an exact identity', 'invalid_core_response');
       }
       return {
-        id: value.id, name: value.name, live: value.live === true,
-        handlersLive: value.handlers_live === true, stale: value.stale === true,
-        capabilities: Array.isArray(value.capabilities) ? value.capabilities.filter(nonempty) : [],
-        activeAgents: Number(value.active_agents), reservedAgents: Number(value.reserved_agents), maxAgents: Number(value.max_agents),
+        id: value.id,
+        name: value.name,
+        live: value.live === true,
+        handlersLive: value.handlers_live === true,
+        stale: value.stale === true,
+        capabilities: Array.isArray(value.capabilities)
+          ? value.capabilities.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+          : [],
+        activeAgents: Number(value.active_agents),
+        reservedAgents: Number(value.reserved_agents),
+        maxAgents: Number(value.max_agents),
       };
     });
   }
 
   async spawn(request: NodeSpawnRequest): Promise<NodeSpawnReceipt> {
-    if (!request.directory || !isAbsolute(request.directory)) throw new NodeSpawnError('Local node spawn requires an absolute directory', 'spawn_invalid_input');
-    if (!validIdempotencyKey(request.idempotencyKey)) throw new NodeSpawnError('Invalid node-spawn idempotency key', 'spawn_invalid_input');
+    if (!request.directory || !isAbsolute(request.directory)) {
+      throw new NodeSpawnError('Local node spawn requires an absolute directory', 'spawn_invalid_input');
+    }
+    if (!this.scope.harnesses.includes(request.harness)
+      || !this.scope.directoryScope.some(root => withinDirectory(root, request.directory!))) {
+      throw new NodeSpawnError(
+        'The Desktop service caller does not authorize this harness and directory',
+        'outside_scope',
+      );
+    }
+    if (!validIdempotencyKey(request.idempotencyKey)) {
+      throw new NodeSpawnError('Invalid node-spawn idempotency key', 'spawn_invalid_input');
+    }
     if (request.model !== undefined || request.repo !== undefined || request.sandboxOnly !== undefined) {
       throw new NodeSpawnError(
         'The Desktop core bridge does not accept model, repository, or sandbox placement overrides',
@@ -189,18 +187,21 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
       );
     }
     const allTargets = await this.targets();
-    const targets = allTargets.filter(candidate => candidate.live && candidate.handlersLive
+    const eligible = allTargets.filter(candidate => candidate.live && candidate.handlersLive
       && !candidate.stale && candidate.capabilities.includes(`spawn:${request.harness}`));
     const target = request.node === undefined
-      ? targets[0]
-      : targets.find(candidate => candidate.name === request.node);
+      ? eligible[0]
+      : eligible.find(candidate => candidate.name === request.node);
     if (!target?.id) throw new NodeSpawnError('No eligible local Agent Relay spawn target', 'no_eligible_node');
-    const raw = await this.core.call<CoreInvocation>('spawn.invoke', {
-      caller_name: this.callerName, caller_secret: callerSecret(this),
-      node_id: target.id, node_name: target.name,
-      name: request.name, harness: request.harness, task: request.task,
-      directory: request.directory, idempotency_key: request.idempotencyKey,
-    });
+    const raw = await this.bridge.spawnInvoke(this.core, {
+      node_id: target.id,
+      node_name: target.name,
+      name: request.name,
+      harness: request.harness,
+      task: request.task,
+      directory: request.directory,
+      idempotency_key: request.idempotencyKey,
+    }, { actionTimeoutMs: request.timeoutMs });
     // spawn.invoke is the action receipt; spawn.status is also the boundary
     // that enriches it from the core's exact same-workspace registration.
     const settled = await this.wait('spawn', raw.id, request.timeoutMs);
@@ -223,25 +224,33 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
   }
 
   async status(action: NodeSpawnAction, invocationId: string): Promise<NodeSpawnInvocation> {
-    const raw = await this.core.call<CoreInvocation>('spawn.status', {
-      caller_name: this.callerName, caller_secret: callerSecret(this),
-      action, invocation_id: invocationId,
-    });
-    return mapCoreInvocation(action, raw);
+    return mapCoreInvocation(action, await this.bridge.spawnStatus(this.core, {
+      action,
+      invocation_id: invocationId,
+    }));
   }
 
   async release(request: NodeReleaseRequest): Promise<NodeSpawnInvocation> {
-    if (!validIdempotencyKey(request.idempotencyKey)) throw new NodeSpawnError('Invalid node-release idempotency key', 'spawn_invalid_input');
+    if (!validIdempotencyKey(request.idempotencyKey)) {
+      throw new NodeSpawnError('Invalid node-release idempotency key', 'spawn_invalid_input');
+    }
     const receipt = request.receipt;
-    if (!receipt.nodeId) throw new NodeSpawnError('Local release requires the exact spawn node id', 'release_identity_mismatch');
-    const raw = await this.core.call<CoreInvocation>('spawn.release', {
-      caller_name: this.callerName, caller_secret: callerSecret(this),
-      node_id: receipt.nodeId, node_name: receipt.nodeName,
-      name: receipt.name, expected_agent_id: receipt.agentId, idempotency_key: request.idempotencyKey,
+    if (!receipt.nodeId) {
+      throw new NodeSpawnError('Local release requires the exact spawn node id', 'release_identity_mismatch');
+    }
+    const raw = await this.bridge.spawnRelease(this.core, {
+      node_id: receipt.nodeId,
+      node_name: receipt.nodeName,
+      name: receipt.name,
+      expected_agent_id: receipt.agentId,
+      idempotency_key: request.idempotencyKey,
     });
-    const settled = raw.status === 'completed' ? mapCoreInvocation('release', raw) : await this.wait('release', raw.id);
+    const settled = raw.status === 'completed'
+      ? mapCoreInvocation('release', raw)
+      : await this.wait('release', raw.id);
     if (settled.status !== 'completed' || settled.released !== true) {
-      throw new NodeSpawnError('The local node did not confirm exact agent release', settled.errorCode ?? 'release_unconfirmed');
+      throw new NodeSpawnError('The local node did not confirm exact agent release',
+        settled.errorCode ?? 'release_unconfirmed');
     }
     return settled;
   }
@@ -257,18 +266,24 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
   }
 }
 
-function callerSecret(port: LocalNodeSpawnPort): string {
-  const secret = callerSecrets.get(port);
-  if (secret === undefined) throw new NodeSpawnError('Local node spawn caller authority was lost', 'caller_required');
-  return secret;
+function withinDirectory(root: string, candidate: string): boolean {
+  const path = relative(root, candidate);
+  return path === '' || (path !== '..' && !path.startsWith(`..${sep}`)
+    && !isAbsolute(path));
 }
 
 function mapCoreInvocation(action: NodeSpawnAction, value: CoreInvocation): NodeSpawnInvocation {
   return {
-    id: value.id, action, status: normalizeNodeSpawnStatus(value.status),
-    nodeId: value.node_id, name: value.name, agentId: value.agent_id,
-    spawned: value.spawned, ready: value.ready, taskUnconfirmed: value.task_unconfirmed,
+    id: value.id,
+    action,
+    status: normalizeNodeSpawnStatus(value.status),
+    nodeId: value.node_id ?? undefined,
+    name: value.name ?? undefined,
+    agentId: value.agent_id ?? undefined,
+    spawned: value.spawned,
+    ready: value.ready,
+    taskUnconfirmed: value.task_unconfirmed,
     released: value.released,
-    errorCode: value.error_code,
+    errorCode: value.error_code ?? undefined,
   };
 }

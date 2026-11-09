@@ -95,6 +95,10 @@ const LOCAL_EXECUTION_OPTIONS = [
     description: `With --local-agent, how many agent steps (and, separately, LLM steps) run at once (1-${MAX_LOCAL_AGENT_CAPACITY})`,
     defaultValue: String(DEFAULT_LOCAL_AGENT_CAPACITY),
   },
+  {
+    flags: '--service-caller-file <caller.json>',
+    description: 'With --local-agent, use this explicit Desktop schema-v2 service caller for relay agent steps',
+  },
   { flags: '--no-spawn', description: 'Require a running relayflowd rather than starting one' },
   { flags: '--no-observer-link', description: 'Do not mint an observer link for this run' },
   { flags: '--cloud-mirror', description: 'Also put this run on the Cloud dashboard (also FLOWS_CLOUD_MIRROR=1)' },
