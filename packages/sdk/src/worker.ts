@@ -169,7 +169,7 @@ export class AgentWorker extends EventEmitter {
   private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
     if (this.closing) return;
     if (dispatch.step_type !== 'agent') return;
-    const running: Promise<void> = this.execute(dispatch).catch((error: unknown) => {
+    const running: Promise<void> = this.executeAfterSettlementReconcile(dispatch).catch((error: unknown) => {
       this.emit('error', error, dispatch);
     });
     this.inFlight.add(running);
@@ -184,6 +184,16 @@ export class AgentWorker extends EventEmitter {
       }
     });
   };
+
+  private async executeAfterSettlementReconcile(dispatch: StepDispatchEvent): Promise<void> {
+    // A dispatch that arrives after a drain can race the drain's asynchronous
+    // claim scan. Keep it in the drain count, but do not let it prepare or
+    // settle a new delivery until the existing scan has finished.
+    while (this.settlementReconcile !== undefined) {
+      await this.settlementReconcile;
+    }
+    await this.execute(dispatch);
+  }
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<ResolvedKernelAgentStep>;
@@ -307,6 +317,10 @@ export class AgentWorker extends EventEmitter {
 
   private async reconcileRelaySettlements(): Promise<void> {
     if (this.settlementReconcile !== undefined) return this.settlementReconcile;
+    if (this.inFlight.size > 0) {
+      this.scheduleSettlementReconcile();
+      return;
+    }
     const running = this.reconcileRelaySettlementsOnce();
     this.settlementReconcile = running;
     void running.finally(() => {

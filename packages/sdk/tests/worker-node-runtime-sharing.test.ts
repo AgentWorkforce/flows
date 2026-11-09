@@ -221,6 +221,78 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     expect(order.at(-1)).toBe('close');
   });
 
+  it('holds a new dispatch behind settlement reconciliation from the prior drain', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'flows-shared-node-runtime-reconcile-barrier-'));
+    roots.push(dataDir);
+    const pending = dispatch('edit-after-drain', 'dispatch_afterdrain');
+    let spawnedName = '';
+    const spawn = vi.fn<NodeSpawnPort['spawn']>(async input => {
+      spawnedName = input.name;
+      return { id: 'spawn_after_drain', action: 'spawn', status: 'completed',
+        nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_after_drain',
+        spawned: true, ready: true };
+    });
+    const runtime: NodeSpawnRuntime = {
+      publisher: { id: 'publisher_1', name: 'flows-publisher' },
+      baseUrl: 'https://cast.agentrelay.com',
+      port: {
+        targets: async () => [],
+        spawn,
+        status: vi.fn(),
+        release: vi.fn<NodeSpawnPort['release']>(async () => ({
+          id: 'release_after_drain', action: 'release', status: 'completed',
+          spawned: false, ready: false, released: true,
+        })),
+      },
+      inbox: { inbox: {
+        subscribe: async function* () {
+          yield { id: 'delivery_after_drain', message: { id: 'message_after_drain',
+            from: { id: 'agent_after_drain', name: spawnedName },
+            text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: pending.run_id,
+              step_id: pending.step_id, dispatch_id: pending.idempotency_key,
+              status: 'completed', output: { step: pending.step_id } }) } };
+        },
+        ack: vi.fn(async () => ({})),
+        fail: vi.fn(async () => ({})),
+      } },
+    };
+    owner.get.mockResolvedValue(runtime);
+    const stepHeartbeat = vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 }));
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat,
+      stepComplete: vi.fn(async () => ({})),
+      supportsFeature: vi.fn(() => true),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_reconcile_barrier', pins: {}, dataDir,
+    });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+
+    const state = worker as unknown as { settlementReconcile?: Promise<void> };
+    let finishReconcile!: () => void;
+    state.settlementReconcile = new Promise<void>(resolve => {
+      finishReconcile = () => {
+        state.settlementReconcile = undefined;
+        resolve();
+      };
+    });
+    client.emit('step.dispatch', pending);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stepHeartbeat).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+
+    const closing = worker.close();
+    finishReconcile();
+    await closing;
+    expect(errors).toEqual([]);
+    expect(stepHeartbeat).toHaveBeenCalledOnce();
+    expect(spawn).toHaveBeenCalledOnce();
+  });
+
   it('drains a six-task mixed-order fan with one lease cancellation before closing the shared runtime', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-shared-node-runtime-fan-'));
     roots.push(dataDir);
