@@ -106,7 +106,8 @@ describe('native node-spawn task transport', () => {
   it('replays across changed recovery text while stable task identity remains exact', async () => {
     const dataDir = await dataDirectory('flows-node-recover-task-identity-');
     const f = fixture();
-    const initial = { ...request(dataDir), taskIdentity: 'Implement the change' };
+    const initial = { ...request(dataDir), taskIdentity: 'Implement the change',
+      result_schema: { type: 'object', required: ['summary'] } };
     await runAgentRelayTask(initial, { runtime: f.runtime });
     const recovered = await runAgentRelayTask({
       ...initial,
@@ -121,6 +122,9 @@ describe('native node-spawn task transport', () => {
 
     await expect(runAgentRelayTask({
       ...initial, taskIdentity: 'A different authored task', attempt: 2,
+    }, { runtime: f.runtime })).rejects.toThrow('conflicts with its durable identity or input');
+    await expect(runAgentRelayTask({
+      ...initial, result_schema: { type: 'object', required: ['different'] }, attempt: 2,
     }, { runtime: f.runtime })).rejects.toThrow('conflicts with its durable identity or input');
   });
 

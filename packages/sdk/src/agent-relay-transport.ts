@@ -204,6 +204,7 @@ async function executeAgentRelayTask(
       cli: request.cli, task, task_identity: request.taskIdentity ?? request.task,
       ...(request.model === undefined ? {} : { model: request.model }),
       ...(request.worker_cwd === undefined ? {} : { worker_cwd: request.worker_cwd }),
+      ...(request.result_schema === undefined ? {} : { result_schema: request.result_schema }),
       ...(runtime.node === undefined ? {} : { node: runtime.node }),
       ...(runtime.repo === undefined ? {} : { repo: runtime.repo }),
       ...(runtime.sandboxOnly === undefined ? {} : { sandbox_only: runtime.sandboxOnly }),
