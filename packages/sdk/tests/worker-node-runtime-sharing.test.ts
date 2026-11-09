@@ -116,7 +116,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
             from: { id: 'agent_worker_path', name: spawnedName },
             text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_parallel',
               step_id: 'edit-local-path', dispatch_id: 'dispatch_localpath', status: 'completed',
-              output: { summary: 'done' } }) } };
+              output: { summary: 'done' }, accounting: { tokens_input: 10, tokens_output: 5 } }) } };
         },
         ack: vi.fn(async () => ({})), fail: vi.fn(async () => ({})),
       } },
@@ -125,7 +125,8 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     const client = Object.assign(new EventEmitter(), {
       workerAttach: vi.fn(async () => ({})),
       stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
-      stepComplete: vi.fn(async () => ({})),
+      stepComplete: vi.fn<JournalClient['stepComplete']>(async () => ({} as Awaited<
+        ReturnType<JournalClient['stepComplete']>>)),
       supportsFeature: vi.fn(() => true),
     });
     const worker = new AgentWorker(client as unknown as JournalClient, {
@@ -152,6 +153,12 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       expect(spawn.mock.calls[0]![0].directory).toBe(testCase.expectedDirectory === 'run-root'
         ? runRoot : testCase.expectedDirectory === 'declared' ? exactDeclaredDirectory : undefined);
       expect(spawn.mock.calls[0]![0].model).toBe(testCase.expectedModel);
+    }
+    if ('omitModel' in testCase && testCase.omitModel) {
+      expect(client.stepComplete.mock.calls[0]?.[5]).toMatchObject({
+        usage: { tokens_in: 10, tokens_out: 5, dollars_unmetered: true },
+      });
+      expect(client.stepComplete.mock.calls[0]?.[5]).not.toHaveProperty('reported_cost');
     }
   });
 

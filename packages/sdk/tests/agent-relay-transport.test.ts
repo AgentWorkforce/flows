@@ -103,6 +103,51 @@ describe('native node-spawn task transport', () => {
     expect(recovered.receipt.status).toBe('completed');
   });
 
+  it('retains the original inbox teardown barrier across a failed release and cached retry', async () => {
+    const dataDir = await dataDirectory('flows-node-release-retry-teardown-');
+    const f = fixture();
+    let finishTeardown!: () => void;
+    const settlementReady = new Promise<{ failure?: unknown }>(resolve => {
+      finishTeardown = () => resolve({});
+    });
+    let delivered = false;
+    const subscribe = vi.fn(() => ({ [Symbol.asyncIterator]() { return {
+      async next() {
+        if (delivered) return new Promise<IteratorResult<never>>(() => undefined);
+        delivered = true;
+        const name = (await f.spawn.mock.results[0]!.value).name;
+        return { done: false as const, value: { id: 'delivery_1', settlementReady,
+          message: { id: 'message_1', from: { id: 'agent_1', name },
+            text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1',
+              step_id: 'edit', dispatch_id: 'dispatch_1234567890', status: 'completed',
+              output: { summary: 'done' }, accounting: { tokens_input: 10, tokens_output: 5 } }) } } };
+      },
+      async return() { return { done: true as const, value: undefined }; },
+    }; } }));
+    f.runtime.inbox.inbox.subscribe = subscribe;
+    f.release.mockRejectedValueOnce(new Error('release unavailable'));
+
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('release unavailable');
+    const recovered = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    expect(subscribe).toHaveBeenCalledOnce();
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledTimes(2);
+    await recovered.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    const settling = recovered.delivery.ack();
+    const settledBeforeTeardown = await Promise.race([
+      settling.then(() => true),
+      new Promise<false>(resolve => setTimeout(() => resolve(false), 100)),
+    ]);
+    expect(settledBeforeTeardown).toBe(false);
+    expect(f.ack).not.toHaveBeenCalled();
+    expect(f.fail).not.toHaveBeenCalled();
+    finishTeardown();
+    await settling;
+    expect(f.ack).toHaveBeenCalledOnce();
+    expect(f.fail).not.toHaveBeenCalled();
+  });
+
   it('replays across changed recovery text while stable task identity remains exact', async () => {
     const dataDir = await dataDirectory('flows-node-recover-task-identity-');
     const f = fixture();

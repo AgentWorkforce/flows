@@ -7,6 +7,7 @@ import {
   type NodeReleaseRequest,
   type NodeSpawnAction,
   type NodeSpawnInvocation,
+  type NodeSpawnIdentity,
   type NodeSpawnPort,
   type NodeSpawnReceipt,
   type NodeSpawnRequest,
@@ -240,12 +241,14 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     }, { actionTimeoutMs: request.timeoutMs });
     // spawn.invoke is the action receipt; spawn.status is also the boundary
     // that enriches it from the core's exact same-workspace registration.
-    const settled = await this.wait('spawn', raw.id, request.timeoutMs);
+    const confirmation = await this.wait('spawn', raw.id, request.timeoutMs,
+      mapCoreInvocation('spawn', raw));
+    const settled = confirmation.invocation;
     const settledTarget = allTargets.find(candidate => candidate.id === settled.nodeId);
-    const cleanup = settled.agentId && settled.name && settledTarget?.id
+    const cleanup = confirmation.cleanup ?? (settled.agentId && settled.name && settledTarget?.id
       ? { id: settled.id, nodeId: settledTarget.id, nodeName: settledTarget.name,
         name: settled.name, agentId: settled.agentId }
-      : undefined;
+      : undefined);
     if (settled.status !== 'completed' || !settled.spawned || !settled.ready
       || settled.taskUnconfirmed !== false || !settled.agentId || !settled.name) {
       throw new NodeSpawnError('The local node did not prove a ready spawned agent',
@@ -285,7 +288,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     });
     const settled = raw.status === 'completed'
       ? mapCoreInvocation('release', raw)
-      : await this.wait('release', raw.id);
+      : (await this.wait('release', raw.id)).invocation;
     if (settled.status !== 'completed' || settled.released !== true) {
       throw new NodeSpawnError('The local node did not confirm exact agent release',
         settled.errorCode ?? 'release_unconfirmed');
@@ -293,14 +296,51 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     return settled;
   }
 
-  private async wait(action: NodeSpawnAction, id: string, timeoutMs = 360_000): Promise<NodeSpawnInvocation> {
+  private async wait(
+    action: NodeSpawnAction,
+    id: string,
+    timeoutMs = 360_000,
+    initial?: NodeSpawnInvocation,
+  ): Promise<{ invocation: NodeSpawnInvocation; cleanup?: NodeSpawnIdentity }> {
     const deadline = Date.now() + timeoutMs;
+    let cleanup = this.cleanupIdentity(action, initial);
     while (Date.now() < deadline) {
-      const value = await this.status(action, id);
-      if (terminalStatus(value.status)) return value;
+      let value: NodeSpawnInvocation;
+      try {
+        value = await this.status(action, id);
+      } catch (error) {
+        if (cleanup === undefined) throw error;
+        if (error instanceof NodeSpawnError) {
+          throw new NodeSpawnError(error.message, error.code, error.cause ?? error, cleanup);
+        }
+        throw new NodeSpawnError(`Could not confirm local ${action}`, `${action}_unconfirmed`, error, cleanup);
+      }
+      const observed = this.cleanupIdentity(action, value);
+      if (cleanup !== undefined && value.spawned === true
+        && ((value.id !== '' && cleanup.id !== value.id)
+          || (value.nodeId !== undefined && cleanup.nodeId !== value.nodeId)
+          || (value.name !== undefined && cleanup.name !== value.name)
+          || (value.agentId !== undefined && cleanup.agentId !== value.agentId))) {
+        throw new NodeSpawnError('The local spawn confirmation changed its exact identity',
+          'spawn_identity_mismatch', undefined, cleanup);
+      }
+      cleanup ??= observed;
+      if (terminalStatus(value.status)) return { invocation: value, cleanup };
       await new Promise(resolve => setTimeout(resolve, 500));
     }
-    throw new NodeSpawnError(`Timed out waiting for local ${action} confirmation`, `${action}_unconfirmed`);
+    throw new NodeSpawnError(`Timed out waiting for local ${action} confirmation`,
+      `${action}_unconfirmed`, undefined, cleanup);
+  }
+
+  private cleanupIdentity(
+    action: NodeSpawnAction,
+    value?: NodeSpawnInvocation,
+  ): NodeSpawnIdentity | undefined {
+    if (action !== 'spawn' || value?.spawned !== true || value.id.trim() === ''
+      || value.nodeId !== this.exactNode.id || !value.name || value.name.trim() === ''
+      || !value.agentId || value.agentId.trim() === '') return undefined;
+    return { id: value.id, nodeId: value.nodeId, nodeName: this.exactNode.name,
+      name: value.name, agentId: value.agentId };
   }
 }
 

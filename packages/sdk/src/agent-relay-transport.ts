@@ -332,16 +332,16 @@ async function executeAgentRelayTask(
         receivedAt: Date.now() } };
       await recordNodeSpawn(claimed.path, claim);
     }
+    // Register the live inbox teardown before exact release. A failed release
+    // is recoverable from the durable result, but a same-process retry cannot
+    // recreate this process-generation barrier after the iterator is gone.
+    const delivery = durableNodeResultDelivery(runtime, claimed.path, claim, observed);
     if (claim.release === undefined) {
       releaseAttempted = true;
       const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
       claim = cleanup.claim;
       if (cleanup.error !== undefined) throw cleanup.error;
     }
-    // Construct the settlement wrapper from the post-release claim. Otherwise
-    // preparing its journal intent could rewrite the file from a stale copy
-    // and silently discard the exact release receipt.
-    const delivery = durableNodeResultDelivery(runtime, claimed.path, claim, observed);
     resultSignal?.throwIfAborted();
     const envelope = delivery.envelope;
     const error = envelope.status === 'failed' ? envelope.error! : null;

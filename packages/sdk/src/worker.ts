@@ -267,8 +267,8 @@ export class AgentWorker extends EventEmitter {
             this.options.environment, spec.cli_identity, spec.timeout_ms, spec.resume, spec.secrets,
             this.client.supportsFeature?.('step_secret_scoping') ?? true)
           : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
-    const { result, usage } = workerSpend(completed, effectiveModel);
-    const cost = reportedCost(completed, effectiveModel);
+    const { result, usage } = workerSpend(completed, executionModel);
+    const cost = reportedCost(completed, executionModel);
     const completionReason = agentCompletionReason(result);
 
     // Output shape: if the CLI's stdout parses as JSON, promote THAT

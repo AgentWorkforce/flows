@@ -183,6 +183,86 @@ describe('local node-spawn port', () => {
       cleanup: { nodeId: 'node_1', nodeName: 'desktop-1', name: 'worker_1', agentId: 'agent_1' },
     });
   });
+
+  it('retains exact cleanup identity when local spawn confirmation times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const status = vi.fn();
+      const core: TestCore = { async call<T>(method: string): Promise<T> {
+        if (method === 'spawn.targets') return { targets: [{ id: 'node_1', name: 'desktop-1', live: true,
+          handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
+        if (method === 'spawn.invoke') return { id: 'inv_1', status: 'pending', spawned: false,
+          ready: false, task_unconfirmed: false } as T;
+        if (method === 'spawn.status') {
+          status();
+          return { id: 'inv_1', status: 'running', node_id: 'node_1', agent_id: 'agent_1',
+            name: 'worker_1', spawned: true, ready: false, task_unconfirmed: false } as T;
+        }
+        throw new Error(`unexpected core method: ${method}`);
+      } };
+      const failure = expect(localPort(core).spawn({ name: 'worker_1', harness: 'codex', task: 'work',
+        directory: '/workspace', idempotencyKey: 'dispatch_1234567890', timeoutMs: 750 }))
+        .rejects.toMatchObject({ code: 'spawn_unconfirmed', cleanup: {
+          id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1', name: 'worker_1', agentId: 'agent_1',
+        } });
+      await vi.waitFor(() => expect(status).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(1_000);
+      await failure;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains exact cleanup identity when later local spawn polling fails', async () => {
+    vi.useFakeTimers();
+    try {
+      const pollFailure = new Error('core disconnected');
+      let statusCalls = 0;
+      const core: TestCore = { async call<T>(method: string): Promise<T> {
+        if (method === 'spawn.targets') return { targets: [{ id: 'node_1', name: 'desktop-1', live: true,
+          handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
+        if (method === 'spawn.invoke') return { id: 'inv_1', status: 'pending', spawned: false,
+          ready: false, task_unconfirmed: false } as T;
+        if (method === 'spawn.status' && statusCalls++ === 0) return { id: 'inv_1', status: 'running',
+          node_id: 'node_1', agent_id: 'agent_1', name: 'worker_1', spawned: true,
+          ready: false, task_unconfirmed: false } as T;
+        if (method === 'spawn.status') throw pollFailure;
+        throw new Error(`unexpected core method: ${method}`);
+      } };
+      const failure = expect(localPort(core).spawn({ name: 'worker_1', harness: 'codex', task: 'work',
+        directory: '/workspace', idempotencyKey: 'dispatch_1234567890' }))
+        .rejects.toMatchObject({ code: 'spawn_unconfirmed', cause: pollFailure, cleanup: {
+          id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1', name: 'worker_1', agentId: 'agent_1',
+        } });
+      await vi.waitFor(() => expect(statusCalls).toBe(1));
+      await vi.advanceTimersByTimeAsync(500);
+      await failure;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails closed on a conflicting later spawn identity and retains the first exact cleanup', async () => {
+    let statusCalls = 0;
+    const core: TestCore = { async call<T>(method: string): Promise<T> {
+      if (method === 'spawn.targets') return { targets: [{ id: 'node_1', name: 'desktop-1', live: true,
+        handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
+      if (method === 'spawn.invoke') return { id: 'inv_1', status: 'pending', spawned: false,
+        ready: false, task_unconfirmed: false } as T;
+      if (method === 'spawn.status' && statusCalls++ === 0) return { id: 'inv_1', status: 'running',
+        node_id: 'node_1', agent_id: 'agent_1', name: 'worker_1', spawned: true,
+        ready: false, task_unconfirmed: false } as T;
+      if (method === 'spawn.status') return { id: 'inv_1', status: 'completed', node_id: 'node_1',
+        agent_id: 'agent_other', name: 'worker_1', spawned: true,
+        ready: true, task_unconfirmed: false } as T;
+      throw new Error(`unexpected core method: ${method}`);
+    } };
+    const pending = localPort(core).spawn({ name: 'worker_1', harness: 'codex', task: 'work',
+      directory: '/workspace', idempotencyKey: 'dispatch_1234567890' });
+    await expect(pending).rejects.toMatchObject({ code: 'spawn_identity_mismatch', cleanup: {
+      id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1', name: 'worker_1', agentId: 'agent_1',
+    } });
+  });
 });
 
 describe('remote node-spawn port', () => {
