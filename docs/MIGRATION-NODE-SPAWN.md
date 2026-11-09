@@ -6,7 +6,7 @@ all broker/PTy launch paths from `@relayflows/sdk`.
 ## One-shot remote agents
 
 Keep `transport: 'relay'`, install `@agent-relay/sdk` in the supported range
-`>=17.2.1 <18`, and provide a dedicated publisher `RELAY_AGENT_TOKEN`. The
+`>=17.2.1 <19`, and provide a dedicated publisher `RELAY_AGENT_TOKEN`. The
 transport now uses fleet node placement and the durable result inbox instead
 of Relaycast `task.run`.
 

@@ -76,7 +76,7 @@ export async function createRemoteNodeSpawnRuntime(
     });
   } catch (error) {
     if (options.signal?.aborted === true) throw options.signal.reason ?? error;
-    throw new NodeSpawnError('Node-spawn transport requires optional @agent-relay/sdk >=17.2.1 <18.',
+    throw new NodeSpawnError('Node-spawn transport requires optional @agent-relay/sdk >=17.2.1 <19.',
       'relay_sdk_unavailable', error);
   }
   const sandbox = env.RELAYFLOW_NODE_SANDBOX_ONLY?.trim();

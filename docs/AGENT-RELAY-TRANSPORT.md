@@ -12,7 +12,7 @@ cannot replace it. `RELAY_BASE_URL` defaults to
 `RELAYFLOW_NODE_NAME`, `RELAYFLOW_NODE_REPO`, and
 `RELAYFLOW_NODE_SANDBOX_ONLY=1`.
 
-The remote path uses `@agent-relay/sdk >=17.2.1 <18`:
+The remote path uses `@agent-relay/sdk >=17.2.1 <19`:
 
 1. `placement.spawn` selects a live node advertising `spawn:<harness>`.
 2. Flows requests `confirm: true` and `verifyReady: true` and refuses an

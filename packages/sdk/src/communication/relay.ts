@@ -26,7 +26,7 @@ export async function loadRelayModules(): Promise<{ RelaycastMessagingClient: un
     const sdk = await import('@agent-relay/sdk');
     return { RelaycastMessagingClient: sdk.RelaycastMessagingClient };
   } catch (error) {
-    throw new Error('Agent Relay node spawn requires optional @agent-relay/sdk >=17.2.1 <18.', { cause: error });
+    throw new Error('Agent Relay node spawn requires optional @agent-relay/sdk >=17.2.1 <19.', { cause: error });
   }
 }
 
