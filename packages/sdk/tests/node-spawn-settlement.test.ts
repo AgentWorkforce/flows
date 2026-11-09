@@ -127,6 +127,46 @@ describe('durable node-result settlement', () => {
     expect(order).toEqual(['inbox.close', 'caller.disconnect', 'settle']);
   });
 
+  it('bounds an observed teardown that never settles before opening settlement', async () => {
+    const dataDir = await dataDirectory('flows-node-settlement-teardown-timeout-');
+    const f = fixture();
+    let delivered = false;
+    const settlementReady = new Promise<{ failure?: unknown }>(() => undefined);
+    f.runtime.inbox.inbox.subscribe = () => ({ [Symbol.asyncIterator]() {
+      return {
+        async next() {
+          if (delivered) return new Promise<IteratorResult<never>>(() => undefined);
+          delivered = true;
+          const name = (await f.spawn.mock.results[0]!.value).name;
+          return { done: false as const, value: {
+            id: 'delivery_1', settlementReady,
+            message: { id: 'message_1', from: { id: 'agent_1', name },
+              text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1',
+                step_id: 'edit', dispatch_id: 'dispatch_1234567890', status: 'completed',
+                output: { summary: 'done' } }) },
+          } };
+        },
+        return: () => new Promise<IteratorResult<never>>(() => undefined),
+      };
+    } });
+
+    const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    vi.useFakeTimers();
+    try {
+      const settlement = expect(received.delivery.ack())
+        .rejects.toMatchObject({ code: 'result_settlement_unconfirmed' });
+      await vi.advanceTimersByTimeAsync(10_001);
+      await settlement;
+      expect(f.ack).not.toHaveBeenCalled();
+      expect(f.fail).not.toHaveBeenCalled();
+      const claims = await readNodeSpawnClaims(dataDir);
+      expect(claims[0]!.claim.result?.settlement).not.toHaveProperty('settledAt');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects an invalid resolved spawn receipt before reading the inbox and releases exact identity', async () => {
     const dataDir = await dataDirectory('flows-node-invalid-resolved-spawn-');
     const f = fixture();

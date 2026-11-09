@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -29,14 +29,21 @@ afterEach(async () => {
 describe('AgentWorker node-spawn runtime ownership', () => {
   it.each([
     { label: 'Desktop caller', serviceCallerFile: '/tmp/caller.json', authority: undefined,
-      provideRuntime: false, expectedDirectory: 'run-root' },
+      provideRuntime: false, expectedDirectory: 'run-root', expectedSpawn: true },
     { label: 'provided Desktop runtime', serviceCallerFile: undefined, authority: 'desktop' as const,
-      provideRuntime: true, expectedDirectory: 'run-root' },
+      provideRuntime: true, expectedDirectory: 'run-root', expectedSpawn: true },
     { label: 'remote publisher', serviceCallerFile: undefined, authority: 'remote' as const,
-      provideRuntime: true, expectedDirectory: undefined },
-  ])('passes the local run root only to the $label relay spawn', async testCase => {
+      provideRuntime: true, expectedDirectory: undefined, expectedSpawn: true },
+    { label: 'Desktop caller with declared cwd', serviceCallerFile: '/tmp/caller.json', authority: undefined,
+      provideRuntime: false, cwd: 'checkout', expectedDirectory: 'declared', expectedSpawn: true },
+    { label: 'remote publisher with declared cwd', serviceCallerFile: undefined, authority: 'remote' as const,
+      provideRuntime: true, cwd: 'checkout', expectedDirectory: undefined, expectedSpawn: false },
+  ])('routes the run directory only for the $label', async testCase => {
     const runRoot = await mkdtemp(join(tmpdir(), 'flows-node-worker-run-root-'));
     roots.push(runRoot);
+    const declaredDirectory = join(runRoot, 'checkout');
+    await mkdir(declaredDirectory);
+    const exactDeclaredDirectory = await realpath(declaredDirectory);
     let spawnedName = '';
     const spawn = vi.fn<NodeSpawnPort['spawn']>(async input => {
       spawnedName = input.name;
@@ -75,12 +82,17 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       ...(testCase.provideRuntime ? { nodeSpawnRuntime: runtime } : {}),
     });
     await worker.attach();
-    client.emit('step.dispatch', dispatch('edit-local-path', 'dispatch_localpath'));
+    const value = dispatch('edit-local-path', 'dispatch_localpath');
+    if (testCase.cwd !== undefined) {
+      value.spec = { ...(value.spec as Record<string, unknown>), cwd: testCase.cwd };
+    }
+    client.emit('step.dispatch', value);
     await worker.close();
-    expect(spawn).toHaveBeenCalledOnce();
-    expect(spawn.mock.calls[0]![0].directory).toBe(
-      testCase.expectedDirectory === 'run-root' ? runRoot : undefined,
-    );
+    expect(spawn).toHaveBeenCalledTimes(testCase.expectedSpawn ? 1 : 0);
+    if (testCase.expectedSpawn) {
+      expect(spawn.mock.calls[0]![0].directory).toBe(testCase.expectedDirectory === 'run-root'
+        ? runRoot : testCase.expectedDirectory === 'declared' ? exactDeclaredDirectory : undefined);
+    }
   });
 
   it('closes the shared runtime even when final durable inbox settlement still fails', async () => {

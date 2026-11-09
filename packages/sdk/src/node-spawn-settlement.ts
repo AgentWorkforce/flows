@@ -30,12 +30,14 @@ export function durableNodeResultDelivery(
       throw new NodeSpawnError('Node result cannot settle before its journal intent is durable',
         'result_settlement_unprepared');
     }
-    if (observed?.settlementReady !== undefined) {
-      const teardown = await observed.settlementReady;
-      if (teardown.failure !== undefined) throw teardown.failure;
-    }
-    await settleInbox(runtime, current.settlementAction, current.inboxItemId,
-      current.envelope.error ?? 'Relayflows rejected an invalid result');
+    await bounded((async () => {
+      if (observed?.settlementReady !== undefined) {
+        const teardown = await observed.settlementReady;
+        if (teardown.failure !== undefined) throw teardown.failure;
+      }
+      await issueInboxSettlement(runtime, current.settlementAction, current.inboxItemId,
+        current.envelope.error ?? 'Relayflows rejected an invalid result');
+    })());
     claim = { ...claim, result: { ...current, settlement: {
       ...current.settlement,
       settledAt: Date.now(), settledAs: current.settlementAction,
@@ -159,11 +161,20 @@ async function settleInbox(
   inboxItemId: string,
   error: string,
 ): Promise<void> {
+  await bounded(issueInboxSettlement(runtime, action, inboxItemId, error));
+}
+
+function issueInboxSettlement(
+  runtime: NodeSpawnRuntime,
+  action: 'ack' | 'fail',
+  inboxItemId: string,
+  error: string,
+): Promise<unknown> {
   const pending = action === 'ack'
     ? runtime.inbox.inbox.ack({ inboxItemId, state: 'read', metadata: { relayflows_result: 'journaled' } })
     : runtime.inbox.inbox.fail({ inboxItemId, error, retry: false,
       metadata: { relayflows_result: 'rejected' } });
-  await bounded(pending);
+  return pending;
 }
 
 async function bounded(pending: Promise<unknown>): Promise<void> {
