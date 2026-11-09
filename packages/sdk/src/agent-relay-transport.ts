@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { claimNodeSpawn, recordNodeSpawn, type NodeSpawnClaim } from './node-spawn-state.js';
+import { claimNodeSpawn, nodeSpawnClaimPath, recordNodeSpawn,
+  type NodeSpawnClaim } from './node-spawn-state.js';
 import { nodeResultInstruction, waitForNodeResult } from './node-spawn-result.js';
 import { durableNodeResultDelivery } from './node-spawn-settlement.js';
 import { waitForNodeOperation, waitForNodeSpawn } from './node-spawn-deadline.js';
@@ -46,6 +47,7 @@ export class AgentRelayTransportError extends Error {
 }
 
 const CLEANUP_ATTEMPT_TIMEOUT_MS = 15_000;
+const claimExecutions = new Map<string, Promise<void>>();
 
 export function readAgentRelayEnv(env: NodeJS.ProcessEnv = process.env): Required<Pick<AgentRelayEnv, 'baseUrl' | 'agentToken'>> {
   const agentToken = env.RELAY_AGENT_TOKEN?.trim();
@@ -73,6 +75,21 @@ export async function runAgentRelayTask(
     || !validIdempotencyKey(request.idempotencyKey)) {
     throw new AgentRelayTransportError('Node-spawn task requires durable dispatch identity and a valid deadline');
   }
+  const claimPath = nodeSpawnClaimPath(
+    request.dataDir, request.runId, request.stepId, request.idempotencyKey);
+  return serializeClaimExecution(claimPath, async () => {
+    options.signal?.throwIfAborted();
+    return runAgentRelayTaskExclusive(request, options, taskStartedAt, timeoutMs);
+  });
+}
+
+async function runAgentRelayTaskExclusive(
+  request: AgentRelayTaskRequest,
+  options: AgentRelayEnv & { runtime?: NodeSpawnRuntime;
+    runtimeProvider?: (signal?: AbortSignal) => Promise<NodeSpawnRuntime>; signal?: AbortSignal },
+  taskStartedAt: number,
+  timeoutMs: number,
+): Promise<RelayTaskResult> {
   const taskDeadline = taskStartedAt + timeoutMs;
   let acquisitionRemaining: number;
   try { acquisitionRemaining = remainingDeadline(taskDeadline); }
@@ -114,6 +131,21 @@ export async function runAgentRelayTask(
     return await executeAgentRelayTask(request, runtime, options.signal, taskStartedAt, timeoutMs);
   } finally {
     if (ownsRuntime) await runtime.disconnect?.().catch(() => undefined);
+  }
+}
+
+async function serializeClaimExecution<T>(path: string, execute: () => Promise<T>): Promise<T> {
+  const prior = claimExecutions.get(path) ?? Promise.resolve();
+  let release!: () => void;
+  const occupied = new Promise<void>(resolve => { release = resolve; });
+  const queued = prior.then(() => occupied, () => occupied);
+  claimExecutions.set(path, queued);
+  await prior.catch(() => undefined);
+  try {
+    return await execute();
+  } finally {
+    release();
+    if (claimExecutions.get(path) === queued) claimExecutions.delete(path);
   }
 }
 

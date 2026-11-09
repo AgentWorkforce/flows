@@ -198,23 +198,40 @@ describe('durable node-result settlement', () => {
     expect(f.ack).toHaveBeenCalledOnce();
   });
 
-  it('refuses a new live observation after inbox settlement has started', async () => {
-    const dataDir = await dataDirectory('flows-node-settlement-late-observation-');
+  it('serializes concurrent executions before opening a second result iterator', async () => {
+    const dataDir = await dataDirectory('flows-node-settlement-concurrent-observation-');
     const f = fixture();
-    const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
-    const [entry] = await readNodeSpawnClaims(dataDir);
-    let finishAck!: () => void;
-    f.ack.mockImplementationOnce(() => new Promise(resolve => { finishAck = () => resolve({}); }));
-    const delivery = durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim);
-    await delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
-    const settling = delivery.ack();
-    await vi.waitFor(() => expect(f.ack).toHaveBeenCalledOnce());
+    let reportResult!: () => void;
+    const resultGate = new Promise<void>(resolve => { reportResult = resolve; });
+    const subscribe = vi.fn(async function* () {
+      await resultGate;
+      const name = (await f.spawn.mock.results[0]!.value).name;
+      yield { id: 'delivery_1', message: { id: 'message_1',
+        from: { id: 'agent_1', name },
+        text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1',
+          step_id: 'edit', dispatch_id: 'dispatch_1234567890', status: 'completed',
+          output: { summary: 'done' } }) } };
+    });
+    f.runtime.inbox.inbox.subscribe = subscribe;
 
-    expect(() => durableNodeResultDelivery(f.runtime, entry!.path, entry!.claim, {
-      ...received.delivery, settlementReady: Promise.resolve({}),
-    })).toThrowError(expect.objectContaining({ code: 'result_settlement_unconfirmed' }));
-    finishAck();
-    await expect(settling).resolves.toBeUndefined();
+    const first = runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    await vi.waitFor(() => expect(subscribe).toHaveBeenCalledOnce());
+    const second = runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    await Promise.resolve();
+    expect(subscribe).toHaveBeenCalledOnce();
+    expect(f.spawn).toHaveBeenCalledOnce();
+
+    reportResult();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(subscribe).toHaveBeenCalledOnce();
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(secondResult.delivery).toMatchObject({
+      inboxItemId: firstResult.delivery.inboxItemId,
+      messageId: firstResult.delivery.messageId,
+    });
+    await firstResult.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    await firstResult.delivery.ack();
   });
 
   it('releases the process settlement lock when persisting settledAt fails', async () => {

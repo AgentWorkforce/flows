@@ -35,10 +35,9 @@ export async function claimNodeSpawn(dataDir: string, proposed: NodeSpawnClaim):
   const directory = join(dataDir, 'node-spawns');
   await mkdir(directory, { recursive: true });
   await syncDirectory(dataDir);
-  const digest = createHash('sha256')
-    .update(canonicalize([proposed.runId, proposed.stepId, proposed.idempotencyKey]))
-    .digest('hex');
-  const path = join(directory, `${digest}.json`);
+  const path = nodeSpawnClaimPath(
+    dataDir, proposed.runId, proposed.stepId, proposed.idempotencyKey);
+  const digest = path.slice(directory.length + 1, -'.json'.length);
   const temporary = join(directory, `.${digest}.${randomUUID()}.tmp`);
   const file = await open(temporary, 'wx', 0o600);
   try { await file.writeFile(canonicalize(proposed)); await file.sync(); }
@@ -57,6 +56,18 @@ export async function claimNodeSpawn(dataDir: string, proposed: NodeSpawnClaim):
   } finally {
     await unlink(temporary).catch(() => undefined);
   }
+}
+
+export function nodeSpawnClaimPath(
+  dataDir: string,
+  runId: string,
+  stepId: string,
+  idempotencyKey: string,
+): string {
+  const digest = createHash('sha256')
+    .update(canonicalize([runId, stepId, idempotencyKey]))
+    .digest('hex');
+  return join(dataDir, 'node-spawns', `${digest}.json`);
 }
 
 export async function recordNodeSpawn(path: string, claim: NodeSpawnClaim): Promise<void> {
