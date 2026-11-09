@@ -1,3 +1,4 @@
+import { AsyncResource } from 'node:async_hooks';
 import { JournalFrameError, JournalProtocolError, type JournalClient } from '../journal-client.js';
 import { AuthoredFlowExecutionError } from '../authored-flow-error.js';
 import type { JournalEvent } from '../journal-reader.js';
@@ -7,6 +8,14 @@ export const LEASE_SWEEP_GRACE_MS = 5_000;
 const LEASE_POLL_MS = 2_000;
 const STALE_LEASE_MS = 30_000 + LEASE_SWEEP_GRACE_MS;
 export interface RunningStep extends ParkedStep { leaseDeadlineMs: number }
+
+// Completion deliberately aborts a lease snapshot that is no longer needed.
+// The snapshot transport is runtime work, not an authored callback: create its
+// promises in this module-load context while the enclosing wait remains visible
+// to the authored lifecycle and still propagates every real read failure.
+const leaseSnapshotContext = new AsyncResource('RelayflowsLeaseSnapshot');
+const readRunSnapshot = (client: JournalClient, runId: string, signal?: AbortSignal) =>
+  leaseSnapshotContext.runInAsyncScope(() => client.runGet(runId, signal === undefined ? {} : { signal }));
 
 /** Watch completion; snapshots only refresh the non-journaled live lease deadline. */
 export async function waitForRunningStep(client: JournalClient, runId: string,
@@ -82,7 +91,7 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
           `could not establish the completion watch: ${error instanceof Error ? error.message : String(error)}`);
       }), completed]);
     if (unconfirmed !== undefined) {
-      const snapshot = await client.runGet(runId, options.signal === undefined ? {} : { signal: options.signal });
+      const snapshot = await readRunSnapshot(client, runId, options.signal);
       if (snapshot.steps[runningStep.id]?.state !== 'running') return;
       throw new AuthoredFlowExecutionError('daemon_unresponsive',
         `could not establish the completion watch: ${unconfirmed instanceof Error ? unconfirmed.message : String(unconfirmed)}`);
@@ -105,7 +114,7 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
       const read = snapshotRead = new AbortController();
       const signal = options.signal === undefined ? read.signal
         : AbortSignal.any([options.signal, read.signal]);
-      const snapshot = await client.runGet(runId, { signal })
+      const snapshot = await readRunSnapshot(client, runId, signal)
         .catch(error => {
           if (options.signal?.aborted) throw canceled();
           if (protocolFailure !== undefined) throw protocolFailure;

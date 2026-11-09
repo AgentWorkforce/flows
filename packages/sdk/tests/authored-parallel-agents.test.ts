@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flow } from '@relayflows/surface';
 import { AuthoredFlowExecutionError, executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { attachLocalAgent } from '../src/local-agent.js';
@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 /** The fixture's wrapper, but each session holds for a while and journals when it ran. */
-async function slowAgents(capacity: number, failFirstSession = false) {
+async function slowAgents(capacity: number, failFirstSession = false, holdMs = 400) {
   const fixture = chainFixture();
   closes.push(() => fixture.close());
   const spans = join(fixture.root, 'spans.jsonl');
@@ -28,7 +28,7 @@ const request = await receiveWrapperRequest();
 if (request) {
   writeFileSync(${JSON.stringify(started)}, '');
   const start = Date.now();
-  await new Promise(done => setTimeout(done, 400));
+  await new Promise(done => setTimeout(done, ${holdMs}));
   appendFileSync(${JSON.stringify(spans)}, JSON.stringify({ start, end: Date.now() }) + '\\n');
   ${failFirstSession ? `if (!existsSync(${JSON.stringify(join(fixture.root, 'failed-once'))})) {
     writeFileSync(${JSON.stringify(join(fixture.root, 'failed-once'))}, '');
@@ -142,6 +142,38 @@ describe('authored steps under local workers with capacity', () => {
     expect(result.completionReason).toBe('success');
     expect(peakOverlap(readSpans())).toBe(1);
   });
+
+  it('does not attribute an intentionally aborted lease snapshot to the authored agent callback', async () => {
+    const { fixture, client, agent } = await slowAgents(1, false, 2_500);
+    const originalRunGet = client.runGet.bind(client);
+    let snapshotHeld = false;
+    let snapshotsAbortedByCompletion = 0;
+    vi.spyOn(client, 'runGet').mockImplementation(async (runId, options) => {
+      const snapshot = await originalRunGet(runId, options);
+      if (snapshotHeld || options?.signal === undefined || snapshot.steps['agent-1']?.state !== 'running') {
+        return snapshot;
+      }
+      snapshotHeld = true;
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 5_000);
+        options?.signal?.addEventListener('abort', () => {
+          snapshotsAbortedByCompletion += 1;
+          clearTimeout(timer);
+          reject(options.signal!.reason);
+        }, { once: true });
+      });
+      return snapshot;
+    });
+    const completesDuringSnapshot = flow('completes-during-snapshot', async f => {
+      await f.agent('agent', { task: 'finish while the lease snapshot is pending' });
+      f.done('success');
+    });
+    const result = await executeAuthoredFlow(completesDuringSnapshot, client, undefined, {
+      flowPath: fixture.flowPath, localAgentStream: agent.stream, workerCapacity: 1,
+    });
+    expect(result.completionReason).toBe('success');
+    expect(snapshotsAbortedByCompletion).toBe(1);
+  }, 10_000);
 
   it('never starts queued agents once the body has failed', async () => {
     const { fixture, client, agent, readSpans, firstStarted } = await slowAgents(1);
