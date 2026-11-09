@@ -1364,7 +1364,7 @@ steps:
     const unreachable = invokeCli([
       'run', '--no-spawn', '--data-dir', absentDir, join(TESTDATA, 'hello-deterministic.flow.yaml'),
     ]);
-    expect(unreachable.status).toBe(2);
+    expect(unreachable.status, unreachable.stderr).toBe(2);
     expect(unreachable.stderr).toContain('REFUSED [daemon_unreachable]');
     expect(unreachable.stderr).toContain(absentSocket);
     expect(unreachable.stderr).toContain('relayflowd --data-dir');

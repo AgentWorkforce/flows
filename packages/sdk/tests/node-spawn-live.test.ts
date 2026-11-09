@@ -66,6 +66,10 @@ describe('node-spawn transport through the real journal', () => {
       idempotencyKey: string;
     }> = [];
     const ackStates: string[] = [];
+    let allowAck!: () => void;
+    const ackReady = new Promise<void>((resolveReady) => {
+      allowAck = resolveReady;
+    });
     const runtime: NodeSpawnRuntime = {
       baseUrl: 'https://cast.agentrelay.com',
       publisher: { id: 'publisher_1', name: 'flows-publisher' },
@@ -130,6 +134,7 @@ describe('node-spawn transport through the real journal', () => {
             };
           },
           ack: async () => {
+            await ackReady;
             const snapshot = await client.runGet(runId);
             ackStates.push(snapshot.steps['edit']?.state ?? 'missing');
             return {};
@@ -197,9 +202,13 @@ steps:
           idempotencyKey: expect.stringMatching(/^release_[a-f0-9]{32}$/),
         },
       ]);
+      expect(ackStates).toEqual([]);
+      allowAck();
+      await worker.close();
       expect(ackStates).toEqual(['done']);
     } finally {
       allowSpawn();
+      allowAck();
       await worker.close();
     }
   }, 20_000);
