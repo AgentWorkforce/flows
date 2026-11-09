@@ -571,7 +571,10 @@ describe('durable node-result settlement', () => {
     const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
     await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
     let confirmLate!: () => void;
-    f.ack.mockImplementationOnce(() => new Promise<void>(resolve => { confirmLate = resolve; }));
+    let confirmRetry!: () => void;
+    f.ack
+      .mockImplementationOnce(() => new Promise<void>(resolve => { confirmLate = resolve; }))
+      .mockImplementationOnce(() => new Promise<void>(resolve => { confirmRetry = resolve; }));
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       const pending = expect(received.delivery.ack())
@@ -582,12 +585,43 @@ describe('durable node-result settlement', () => {
       await pending;
       const claims = await readNodeSpawnClaims(dataDir);
       expect(claims[0]!.claim.result?.settlement).not.toHaveProperty('settledAt');
+      await Promise.resolve();
+      const retry = received.delivery.ack();
+      await vi.waitFor(() => expect(f.ack).toHaveBeenCalledTimes(2));
       confirmLate();
       await Promise.resolve();
       await Promise.resolve();
       const afterLateSuccess = await readNodeSpawnClaims(dataDir);
       expect(afterLateSuccess[0]!.claim.result?.settlement).not.toHaveProperty('settledAt');
-      await received.delivery.ack();
+      expect(() => durableNodeResultDelivery(f.runtime, claims[0]!.path, afterLateSuccess[0]!.claim, {
+        ...received.delivery, settlementReady: Promise.resolve({}),
+      })).toThrow('gained a live teardown after settlement started');
+      confirmRetry();
+      await retry;
+      const settled = await readNodeSpawnClaims(dataDir);
+      expect(settled[0]!.claim.result?.settlement).toMatchObject({
+        settledAt: expect.any(Number), settledAs: 'ack',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries after a timed-out inbox settlement that never resolves', async () => {
+    const dataDir = await dataDirectory('flows-node-settlement-permanent-stall-');
+    const f = fixture();
+    const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    f.ack.mockImplementationOnce(() => new Promise<void>(() => undefined));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const stalled = expect(received.delivery.ack())
+        .rejects.toMatchObject({ code: 'result_settlement_unconfirmed' });
+      await waitForSettlementTimer();
+      await vi.advanceTimersByTimeAsync(10_001);
+      await stalled;
+      await Promise.resolve();
+      await expect(received.delivery.ack()).resolves.toBeUndefined();
       expect(f.ack).toHaveBeenCalledTimes(2);
       const settled = await readNodeSpawnClaims(dataDir);
       expect(settled[0]!.claim.result?.settlement).toMatchObject({

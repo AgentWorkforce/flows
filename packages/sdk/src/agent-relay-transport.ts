@@ -49,13 +49,6 @@ export class AgentRelayTransportError extends Error {
 const CLEANUP_ATTEMPT_TIMEOUT_MS = 15_000;
 const claimExecutions = new Map<string, Promise<void>>();
 
-export function readAgentRelayEnv(env: NodeJS.ProcessEnv = process.env): Required<Pick<AgentRelayEnv, 'baseUrl' | 'agentToken'>> {
-  const agentToken = env.RELAY_AGENT_TOKEN?.trim();
-  if (!agentToken) throw new AgentRelayTransportError(
-    'Node-spawn transport requires a dedicated publisher RELAY_AGENT_TOKEN.');
-  return { baseUrl: env.RELAY_BASE_URL?.trim() || 'https://cast.agentrelay.com', agentToken };
-}
-
 /**
  * Dispatches exactly once through an Agent Relay node and waits on the
  * publisher's durable inbox. AgentWorker acks the returned delivery only

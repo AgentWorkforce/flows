@@ -17,7 +17,7 @@ interface LiveTeardown {
 interface LiveTeardownGroup {
   generation: number;
   barriers: Set<LiveTeardown>;
-  settlementStarted: boolean;
+  settlementToken?: object;
 }
 
 /** Process-generation state keyed by durable claim path; a real restart intentionally resets it. */
@@ -196,7 +196,7 @@ async function reconcileNodeResultSettlement(
   if (live !== undefined) {
     const failed = [...live.barriers].find(item => item.settled && item.failure !== undefined);
     if (failed !== undefined) throw failed.failure;
-    if (live.settlementStarted || [...live.barriers].some(item => !item.settled)) return true;
+    if (live.settlementToken !== undefined || [...live.barriers].some(item => !item.settled)) return true;
   }
   const terminal = await terminalEntry(journal, claim.runId, claim.stepId, settlement.attempt);
   if (terminal === undefined) return true;
@@ -227,10 +227,10 @@ function rememberLiveTeardown(
   const live: LiveTeardown = { settled: false, outcome: normalized };
   let group = liveTeardowns.get(path);
   if (group === undefined) {
-    group = { generation: 0, barriers: new Set(), settlementStarted: false };
+    group = { generation: 0, barriers: new Set() };
     liveTeardowns.set(path, group);
   }
-  if (group.settlementStarted) {
+  if (group.settlementToken !== undefined) {
     throw new NodeSpawnError('Node result gained a live teardown after settlement started',
       'result_settlement_unconfirmed');
   }
@@ -248,6 +248,7 @@ function rememberLiveTeardown(
 interface LiveSettlement {
   group: LiveTeardownGroup;
   generation: number;
+  token: object;
 }
 
 async function settleAfterLiveTeardowns(
@@ -257,50 +258,59 @@ async function settleAfterLiveTeardowns(
   inboxItemId: string,
   error: string,
 ): Promise<LiveSettlement> {
-  return boundedOperation(async signal => {
-    for (;;) {
-      let group = liveTeardowns.get(path);
-      if (group === undefined) {
-        group = { generation: 0, barriers: new Set(), settlementStarted: false };
-        liveTeardowns.set(path, group);
-      }
-      if (group.settlementStarted) {
-        throw new NodeSpawnError('Node result settlement is already in progress',
-          'result_settlement_unconfirmed');
-      }
-      const generation = group.generation;
-      const outcomes = group.barriers.size === 0
-        ? []
-        : await Promise.all([...group.barriers].map(item => item.outcome));
-      const failed = outcomes.find(item => item.failure !== undefined);
-      if (failed?.failure !== undefined) throw failed.failure;
-      signal.throwIfAborted();
-      const current = liveTeardowns.get(path);
-      if (current !== group || current.generation !== generation) continue;
-      current.settlementStarted = true;
-      try {
-        await issueInboxSettlement(runtime, action, inboxItemId, error);
+  let active: LiveSettlement | undefined;
+  try {
+    return await boundedOperation(async signal => {
+      for (;;) {
+        let group = liveTeardowns.get(path);
+        if (group === undefined) {
+          group = { generation: 0, barriers: new Set() };
+          liveTeardowns.set(path, group);
+        }
+        if (group.settlementToken !== undefined) {
+          throw new NodeSpawnError('Node result settlement is already in progress',
+            'result_settlement_unconfirmed');
+        }
+        const generation = group.generation;
+        const outcomes = group.barriers.size === 0
+          ? []
+          : await Promise.all([...group.barriers].map(item => item.outcome));
+        const failed = outcomes.find(item => item.failure !== undefined);
+        if (failed?.failure !== undefined) throw failed.failure;
         signal.throwIfAborted();
-        return { group: current, generation };
-      } catch (settlementError) {
-        current.settlementStarted = false;
-        throw settlementError;
+        const current = liveTeardowns.get(path);
+        if (current !== group || current.generation !== generation) continue;
+        const token = {};
+        current.settlementToken = token;
+        active = { group: current, generation, token };
+        try {
+          await issueInboxSettlement(runtime, action, inboxItemId, error);
+          signal.throwIfAborted();
+          return active;
+        } catch (settlementError) {
+          releaseLiveSettlement(path, active);
+          throw settlementError;
+        }
       }
-    }
-  });
+    });
+  } catch (error) {
+    if (active !== undefined) releaseLiveSettlement(path, active);
+    throw error;
+  }
 }
 
 function releaseLiveSettlement(path: string, settlement: LiveSettlement): void {
   const current = liveTeardowns.get(path);
-  if (current === settlement.group && current.generation === settlement.generation) {
-    current.settlementStarted = false;
+  if (current === settlement.group && current.generation === settlement.generation
+    && current.settlementToken === settlement.token) {
+    current.settlementToken = undefined;
   }
 }
 
 function completeLiveSettlement(path: string, settlement: LiveSettlement): void {
   const current = liveTeardowns.get(path);
   if (current === settlement.group && current.generation === settlement.generation
-    && current.settlementStarted && current.barriers.size === 0) {
+    && current.settlementToken === settlement.token && current.barriers.size === 0) {
     liveTeardowns.delete(path);
   }
 }

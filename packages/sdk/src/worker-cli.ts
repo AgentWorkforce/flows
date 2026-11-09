@@ -48,6 +48,7 @@ import { pinCliAlias } from './cli/pinned-cli-alias.js';
 import { prepareDevinRuntime } from './devin-runtime.js';
 import { promptOperand } from './adapters/base.js';
 import type { NodeSpawnRuntime } from './node-spawn-runtime.js';
+import { NodeSpawnError } from './node-spawn.js';
 
 export type { CliTransportCause, CliTransportEvidence, CliTransportPhase } from './cli-transport-evidence.js';
 export { agentCompletionReason } from './cli-transport-evidence.js';
@@ -186,7 +187,10 @@ export async function runAgentCli(
       stderr_tail: `resume is refused for CLI ${JSON.stringify(cli)} (${mode}, ${transport}): only a directly spawned Claude or Codex agent can continue a recorded session` };
   }
   if (mode === 'agent' && transport === 'relay') {
-    return runViaAgentRelay(kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal);
+    return runViaAgentRelay(
+      kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal, stepTimeoutMs,
+      childEnvironment,
+    );
   }
 
   // Artifact detection brackets the spawn: the directory the CLI runs in is
@@ -395,6 +399,8 @@ async function runViaAgentRelay(
   kind: CliAdapterKind, instruction: string, wakeContext: unknown,
   model: string | undefined, context: AgentRelayContext | undefined,
   worker_cwd: string | undefined, signal: AbortSignal | undefined,
+  timeoutMs: number | undefined,
+  environment: NodeJS.ProcessEnv,
 ): Promise<WorkerCliResult> {
   try {
     if (kind === 'relayflows-wrapper-v1') throw new Error('Relay task transport does not support same-process wrappers.');
@@ -404,6 +410,7 @@ async function runViaAgentRelay(
       cli: kind, task, model, worker_cwd, result_schema: context.resultSchema,
       runId: context.runId, stepId: context.stepId, idempotencyKey: context.idempotencyKey,
       attempt: context.attempt, dataDir: context.dataDir,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     }, { signal, runtime: context.nodeSpawnRuntime, runtimeProvider: context.nodeSpawnRuntimeProvider });
     const receipt = { ...received.receipt,
       error: received.receipt.error === null ? null : redactRelayError(received.receipt.error) };
@@ -425,8 +432,26 @@ async function runViaAgentRelay(
     if (error instanceof AgentRelayTransportError && error.cleanupPending) throw error;
     const detail = error instanceof AgentRelayTransportError ? error.message
       : error instanceof Error ? error.message : 'Relay task transport failed';
-    return { exit_code: null, stdout_tail: '', stderr_tail: redactRelayError(detail) };
+    const timedOut = error instanceof AgentRelayTransportError && relayTaskTimedOut(error);
+    return { exit_code: null, stdout_tail: '', stderr_tail: redactRelayError(detail),
+      ...(timedOut ? { transport: transportEvidence({
+        phase: 'timeout', cause: 'timeout', exitCode: null, signal: null,
+        stderr: detail, retryable: false,
+      }, environment) } : {}) };
   }
+}
+
+function relayTaskTimedOut(error: AgentRelayTransportError): boolean {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current !== undefined && current !== null && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof NodeSpawnError && current.code === 'task_timeout') return true;
+    if (current instanceof DOMException && current.name === 'TimeoutError') return true;
+    current = current instanceof AgentRelayTransportError || current instanceof NodeSpawnError
+      ? current.cause : undefined;
+  }
+  return false;
 }
 
 /**

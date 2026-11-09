@@ -426,8 +426,9 @@ The retired `transport: "broker"` retained-session surface (`keepAlive`,
 broker fallback. Native retained sessions remain fail-closed until Agent Relay
 Desktop exposes an authorized headless Flows caller/delegation contract; Flows
 will not borrow a live coding session's registration. The local adapter carries
-the Desktop-issued caller name and secret on invoke, status, and release. See
-[the migration note](MIGRATION-NODE-SPAWN.md).
+the Desktop-issued private handoff into a challenge-authenticated bridge; it
+sends no caller name or secret on invoke, status, or release. See [the migration
+note](MIGRATION-NODE-SPAWN.md).
 
 ### Agent retry and recovery controls
 
