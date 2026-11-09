@@ -221,7 +221,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     expect(order.at(-1)).toBe('close');
   });
 
-  it('holds a new dispatch behind settlement reconciliation from the prior drain', async () => {
+  it('closes admission while a due settlement retry drains its current generation', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-shared-node-runtime-reconcile-barrier-'));
     roots.push(dataDir);
     const pending = dispatch('edit-after-drain', 'dispatch_afterdrain');
@@ -271,14 +271,14 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     worker.on('error', error => errors.push(error));
     await worker.attach();
 
-    const state = worker as unknown as { settlementReconcile?: Promise<void> };
-    let finishReconcile!: () => void;
-    state.settlementReconcile = new Promise<void>(resolve => {
-      finishReconcile = () => {
-        state.settlementReconcile = undefined;
-        resolve();
-      };
-    });
+    const state = worker as unknown as {
+      inFlight: Set<Promise<void>>;
+      reconcileRelaySettlementsAfterDrain(): Promise<void>;
+    };
+    let finishCurrentGeneration!: () => void;
+    const currentGeneration = new Promise<void>(resolve => { finishCurrentGeneration = resolve; });
+    state.inFlight.add(currentGeneration);
+    const reconciliation = state.reconcileRelaySettlementsAfterDrain();
     client.emit('step.dispatch', pending);
     await Promise.resolve();
     await Promise.resolve();
@@ -286,8 +286,9 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     expect(spawn).not.toHaveBeenCalled();
 
     const closing = worker.close();
-    finishReconcile();
-    await closing;
+    state.inFlight.delete(currentGeneration);
+    finishCurrentGeneration();
+    await Promise.all([reconciliation, closing]);
     expect(errors).toEqual([]);
     expect(stepHeartbeat).toHaveBeenCalledOnce();
     expect(spawn).toHaveBeenCalledOnce();

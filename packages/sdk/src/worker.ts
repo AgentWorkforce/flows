@@ -71,6 +71,7 @@ export class AgentWorker extends EventEmitter {
   private closing = false;
   private closePromise?: Promise<void>;
   private settlementTimer?: NodeJS.Timeout;
+  private settlementDrain?: Promise<void>;
   private settlementReconcile?: Promise<void>;
   private readonly inFlight: Set<Promise<void>> = new Set();
   private readonly nodeSpawnRuntimeOwner: NodeSpawnRuntimeOwner;
@@ -88,7 +89,7 @@ export class AgentWorker extends EventEmitter {
     if (this.closing) throw new Error('agent worker: cannot attach a closed worker (construct a new one)');
     this.client.on('step.dispatch', this.onDispatch);
     try {
-      await this.reconcileRelaySettlements();
+      await this.reconcileRelaySettlementsAfterDrain();
       await this.client.workerAttach(
         this.options.workerId,
         ['agent'],
@@ -148,7 +149,7 @@ export class AgentWorker extends EventEmitter {
     }
     let settlementError: unknown;
     try {
-      await this.reconcileRelaySettlements();
+      await this.reconcileRelaySettlementsAfterDrain();
     } catch (error) {
       settlementError = error;
     }
@@ -169,7 +170,7 @@ export class AgentWorker extends EventEmitter {
   private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
     if (this.closing) return;
     if (dispatch.step_type !== 'agent') return;
-    const running: Promise<void> = this.executeAfterSettlementReconcile(dispatch).catch((error: unknown) => {
+    const running: Promise<void> = this.executeAfterSettlementDrain(dispatch).catch((error: unknown) => {
       this.emit('error', error, dispatch);
     });
     this.inFlight.add(running);
@@ -180,17 +181,17 @@ export class AgentWorker extends EventEmitter {
       // task is between its journal append and ack can race that task's own
       // settlement and issue the same inbox operation twice.
       if (this.inFlight.size === 0) {
-        void this.reconcileRelaySettlements().catch(error => this.emit('error', error));
+        void this.reconcileRelaySettlementsAfterDrain().catch(error => this.emit('error', error));
       }
     });
   };
 
-  private async executeAfterSettlementReconcile(dispatch: StepDispatchEvent): Promise<void> {
+  private async executeAfterSettlementDrain(dispatch: StepDispatchEvent): Promise<void> {
     // A dispatch that arrives after a drain can race the drain's asynchronous
     // claim scan. Keep it in the drain count, but do not let it prepare or
     // settle a new delivery until the existing scan has finished.
-    while (this.settlementReconcile !== undefined) {
-      await this.settlementReconcile;
+    while (this.settlementDrain !== undefined) {
+      await this.settlementDrain;
     }
     await this.execute(dispatch);
   }
@@ -315,12 +316,22 @@ export class AgentWorker extends EventEmitter {
     await relayDelivery?.ack();
   }
 
+  private reconcileRelaySettlementsAfterDrain(): Promise<void> {
+    if (this.settlementDrain !== undefined) return this.settlementDrain;
+    const generation = Array.from(this.inFlight);
+    const running = (async () => {
+      if (generation.length > 0) await Promise.allSettled(generation);
+      await this.reconcileRelaySettlements();
+    })();
+    this.settlementDrain = running;
+    void running.finally(() => {
+      if (this.settlementDrain === running) this.settlementDrain = undefined;
+    }).catch(() => undefined);
+    return running;
+  }
+
   private async reconcileRelaySettlements(): Promise<void> {
     if (this.settlementReconcile !== undefined) return this.settlementReconcile;
-    if (this.inFlight.size > 0) {
-      this.scheduleSettlementReconcile();
-      return;
-    }
     const running = this.reconcileRelaySettlementsOnce();
     this.settlementReconcile = running;
     void running.finally(() => {
@@ -354,7 +365,7 @@ export class AgentWorker extends EventEmitter {
     if (this.closing || this.settlementTimer !== undefined) return;
     this.settlementTimer = setTimeout(() => {
       this.settlementTimer = undefined;
-      void this.reconcileRelaySettlements().catch(error => this.emit('error', error));
+      void this.reconcileRelaySettlementsAfterDrain().catch(error => this.emit('error', error));
     }, 5_000);
     this.settlementTimer.unref();
   }
