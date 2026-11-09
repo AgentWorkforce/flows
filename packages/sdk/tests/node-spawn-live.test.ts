@@ -66,6 +66,10 @@ describe('node-spawn transport through the real journal', () => {
       idempotencyKey: string;
     }> = [];
     const ackStates: string[] = [];
+    let acknowledgeEntered!: () => void;
+    const ackEntered = new Promise<void>((resolveEntered) => {
+      acknowledgeEntered = resolveEntered;
+    });
     let allowAck!: () => void;
     const ackReady = new Promise<void>((resolveReady) => {
       allowAck = resolveReady;
@@ -134,9 +138,10 @@ describe('node-spawn transport through the real journal', () => {
             };
           },
           ack: async () => {
-            await ackReady;
             const snapshot = await client.runGet(runId);
             ackStates.push(snapshot.steps['edit']?.state ?? 'missing');
+            acknowledgeEntered();
+            await ackReady;
             return {};
           },
           fail: async () => {
@@ -202,12 +207,13 @@ steps:
           idempotencyKey: expect.stringMatching(/^release_[a-f0-9]{32}$/),
         },
       ]);
-      expect(ackStates).toEqual([]);
+      await ackEntered;
+      expect(ackStates).toEqual(['done']);
       allowAck();
       await worker.close();
-      expect(ackStates).toEqual(['done']);
     } finally {
       allowSpawn();
+      acknowledgeEntered();
       allowAck();
       await worker.close();
     }

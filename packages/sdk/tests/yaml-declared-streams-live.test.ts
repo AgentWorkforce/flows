@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { stringify } from 'yaml';
@@ -30,7 +30,6 @@ function fixture(source: 'step' | 'named' | 'flow' | 'project' = 'step', instruc
   const root = mkdtempSync(join(tmpdir(), 'flows-yaml-local-'));
   roots.push(root);
   mkdirSync(join(root, 'flows'));
-  chmodSync(wrapper, 0o755);
   symlinkSync(wrapper, join(root, 'agent.mjs'));
   writeFileSync(join(root, 'flows.json'), JSON.stringify({
     models: ['yaml-test-model'], ...(source === 'project' ? { cli: './agent.mjs' } : {}),

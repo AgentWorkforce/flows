@@ -1159,7 +1159,6 @@ steps:
     // exported. That is exactly the ambient-state failure this field was
     // added to remove, so it has to be enforced by the spawn, not by luck.
     // Without this test nothing else would catch it.
-    process.env.RELAYFLOW_MODEL = 'leaked-parent-model';
     const dataDir = temporaryDirectory('flows-live-model-unset-');
     await startDaemon(dataDir);
     const cli = join(TESTDATA, 'preflight', 'echo-model-cli');
@@ -1171,7 +1170,10 @@ steps:
     });
     await worker.attach();
 
-    const started = await client.runStart(toKernelSpec(compileYaml(`
+    const inheritedModel = process.env.RELAYFLOW_MODEL;
+    process.env.RELAYFLOW_MODEL = 'leaked-parent-model';
+    try {
+      const started = await client.runStart(toKernelSpec(compileYaml(`
 version: '0.1.0'
 steps:
   - id: probe
@@ -1180,22 +1182,23 @@ steps:
     instruction: Report the model env var.
 `)));
 
-    expect(await waitForStep(client, started.run_id, 'probe', 'done')).toMatchObject({
-      type: 'agent',
-      state: 'done',
-    });
-    const entries = (await client.journalRead(started.run_id)).entries;
-    const completed = entries.find(
-      (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
-        && (entry as { step_id?: string }).step_id === 'probe',
-    ) as { payload: { output: { story_title: string } } } | undefined;
-    expect(completed).toBeDefined();
-    // UNSET, not EMPTY and not the leaked parent value.
-    expect(completed!.payload.output.story_title).toBe('model:UNSET');
-
-    delete process.env.RELAYFLOW_MODEL;
-
-    await worker.close();
+      expect(await waitForStep(client, started.run_id, 'probe', 'done')).toMatchObject({
+        type: 'agent',
+        state: 'done',
+      });
+      const entries = (await client.journalRead(started.run_id)).entries;
+      const completed = entries.find(
+        (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
+          && (entry as { step_id?: string }).step_id === 'probe',
+      ) as { payload: { output: { story_title: string } } } | undefined;
+      expect(completed).toBeDefined();
+      // UNSET, not EMPTY and not the leaked parent value.
+      expect(completed!.payload.output.story_title).toBe('model:UNSET');
+    } finally {
+      if (inheritedModel === undefined) delete process.env.RELAYFLOW_MODEL;
+      else process.env.RELAYFLOW_MODEL = inheritedModel;
+      await worker.close();
+    }
   }, 30_000);
 
   it('hn-monitor analyze-story reaches done through the real Claude analyzer CLI', async (context) => {
