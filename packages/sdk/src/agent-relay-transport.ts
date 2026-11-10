@@ -350,7 +350,7 @@ async function executeAgentRelayTask(
       claim = cleanup.claim;
       if (cleanup.error !== undefined) throw cleanup.error;
     }
-    resultSignal?.throwIfAborted();
+    signal?.throwIfAborted();
     const envelope = delivery.envelope;
     const error = envelope.status === 'failed' ? envelope.error! : null;
     const status = error === null ? 'completed' : 'failed';

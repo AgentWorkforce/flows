@@ -493,6 +493,40 @@ describe('native node-spawn task transport', () => {
     }
   });
 
+  it('preserves a timely durable result when exact release crosses the task deadline', async () => {
+    const taskDeadline = new AbortController();
+    const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds =>
+      milliseconds < 2_000 ? taskDeadline.signal : nativeTimeout(milliseconds));
+    try {
+      const dataDir = await dataDirectory('flows-node-result-before-deadline-');
+      const f = fixture();
+      let confirmRelease!: (receipt: Awaited<ReturnType<NodeSpawnPort['release']>>) => void;
+      f.release.mockImplementationOnce(() => new Promise(resolve => { confirmRelease = resolve; }));
+      const task = runAgentRelayTask({ ...request(dataDir), timeoutMs: 1_000 }, { runtime: f.runtime });
+      await vi.waitFor(() => expect(f.release).toHaveBeenCalledOnce());
+
+      taskDeadline.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+      confirmRelease({ id: 'inv_release_after_deadline', action: 'release', status: 'completed',
+        spawned: false, ready: false, released: true });
+
+      const completed = await task;
+      expect(completed.receipt).toMatchObject({
+        status: 'completed',
+        task_execution: { delivery_id: 'delivery_1', release_invocation_id: 'inv_release_after_deadline' },
+      });
+      const [persisted] = await readNodeSpawnClaims(dataDir);
+      expect(persisted!.claim.result).toMatchObject({ inboxItemId: 'delivery_1', messageId: 'message_1' });
+      expect(persisted!.claim.release).toMatchObject({ invocationId: 'inv_release_after_deadline' });
+      expect(f.ack).not.toHaveBeenCalled();
+      await completed.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+      await completed.delivery.ack();
+      expect(f.ack).toHaveBeenCalledOnce();
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   it('journals a failed agent envelope before acknowledging its delivery', async () => {
     const dataDir = await dataDirectory('flows-node-failed-result-');
     const f = fixture('failed');
