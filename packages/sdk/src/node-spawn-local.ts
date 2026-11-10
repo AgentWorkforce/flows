@@ -217,7 +217,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     private readonly scope: Pick<CallerDescriptor, 'harnesses' | 'directoryScope'>,
     private readonly exactNode: { readonly id: string; readonly name: string },
   ) {
-    registerRetryablePreflightPort(this, LocalNodeSpawnPort.prototype.spawn);
+    registerRetryablePreflightPort(this, LOCAL_NODE_SPAWN_IDENTITY);
   }
 
   async targets(): Promise<NodeSpawnTarget[]> {
@@ -398,6 +398,11 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
       name: value.name, agentId: value.agentId };
   }
 }
+
+const LOCAL_NODE_SPAWN_IDENTITY = Object.freeze({
+  spawn: LocalNodeSpawnPort.prototype.spawn,
+  targets: LocalNodeSpawnPort.prototype.targets,
+});
 
 function withinDirectory(root: string, candidate: string): boolean {
   const path = relative(root, candidate);

@@ -14,22 +14,30 @@ interface FencedNodeSpawnOptions {
   settleLate(outcome: { spawn?: NodeSpawnReceipt; error?: unknown }): Promise<void>;
 }
 
-const retryablePreflightPorts = new WeakMap<NodeSpawnPort, NodeSpawnPort['spawn']>();
+interface RetryablePreflightIdentity {
+  spawn: NodeSpawnPort['spawn'];
+  targets: NodeSpawnPort['targets'];
+}
+
+const retryablePreflightPorts = new WeakMap<NodeSpawnPort, RetryablePreflightIdentity>();
 
 /**
- * Registers the exact built-in spawn implementation that may perform proven
- * side-effect-free preflight before publishing the durable dispatch fence.
- * Replaced or overridden methods remain untrusted and are fenced before entry.
+ * Registers the exact built-in method set that may perform proven side-effect-
+ * free preflight before publishing the durable dispatch fence. Replaced or
+ * overridden methods remain untrusted and are fenced before entry.
  */
 export function registerRetryablePreflightPort(
   port: NodeSpawnPort,
-  implementation: NodeSpawnPort['spawn'],
+  identity: RetryablePreflightIdentity,
 ): void {
-  if (port.spawn === implementation) retryablePreflightPorts.set(port, implementation);
+  if (port.spawn === identity.spawn && port.targets === identity.targets) {
+    retryablePreflightPorts.set(port, identity);
+  }
 }
 
 function hasRetryablePreflight(port: NodeSpawnPort): boolean {
-  return retryablePreflightPorts.get(port) === port.spawn;
+  const identity = retryablePreflightPorts.get(port);
+  return identity?.spawn === port.spawn && identity.targets === port.targets;
 }
 
 /** Enters exactly one irreversible spawn behind a durable, one-way fence. */

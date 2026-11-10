@@ -387,6 +387,43 @@ describe('durable node-spawn dispatch fence', () => {
     expect(fenceAtEntry).toBe(true);
   });
 
+  it('treats an overridden built-in target preflight as arbitrary code', async () => {
+    const dataDir = await dataDirectory('flows-dispatch-fence-overridden-targets-');
+    const worker = officialLocalRuntime({ eligible: () => true, invoked() {} });
+    let fenceAtEntry = false;
+    const originalTargets = worker.port.targets.bind(worker.port);
+    worker.port.targets = vi.fn(async () => {
+      const [entry] = await readNodeSpawnClaims(dataDir);
+      await readFile(nodeSpawnDispatchFencePath(entry!.path), 'utf8');
+      fenceAtEntry = true;
+      return originalTargets();
+    });
+
+    await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
+      .resolves.toMatchObject({ receipt: { status: 'completed' } });
+    expect(fenceAtEntry).toBe(true);
+  });
+
+  it('does not trust a local spawn prototype replaced before construction', async () => {
+    const dataDir = await dataDirectory('flows-dispatch-fence-replaced-prototype-');
+    const originalSpawn = LocalNodeSpawnPort.prototype.spawn;
+    let fenceAtEntry = false;
+    LocalNodeSpawnPort.prototype.spawn = async function (input, beforeDispatch) {
+      const [entry] = await readNodeSpawnClaims(dataDir);
+      await readFile(nodeSpawnDispatchFencePath(entry!.path), 'utf8');
+      fenceAtEntry = true;
+      return originalSpawn.call(this, input, beforeDispatch);
+    };
+    try {
+      const worker = officialLocalRuntime({ eligible: () => true, invoked() {} });
+      await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
+        .resolves.toMatchObject({ receipt: { status: 'completed' } });
+      expect(fenceAtEntry).toBe(true);
+    } finally {
+      LocalNodeSpawnPort.prototype.spawn = originalSpawn;
+    }
+  });
+
   it('keeps an arbitrary port fenced when it returns without calling the hook', async () => {
     const dataDir = await dataDirectory('flows-dispatch-fence-bypass-');
     let calls = 0;

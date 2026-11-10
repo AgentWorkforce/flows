@@ -60,7 +60,8 @@ it does not reopen any other port's fenced claim. Existing one-argument `spawn`
 methods must be migrated even though JavaScript permits them to ignore the
 callback. The required version field makes an unchanged port a type error, and
 runtime use fails before claim creation. Overriding the built-in local port's
-`spawn` method also removes that narrow trust and fences it before entry.
+`spawn` or `targets` method also removes that narrow trust and fences it before
+entry.
 
 ## Hosted and self-hosted execution
 
