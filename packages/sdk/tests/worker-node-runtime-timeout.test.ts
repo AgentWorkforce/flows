@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { JournalClient } from '../src/journal-client.js';
 import type { NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
+import { readNodeSpawnClaims } from '../src/node-spawn-state.js';
 import type { NodeSpawnPort, NodeSpawnReceipt } from '../src/node-spawn.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { AgentWorker } from '../src/worker.js';
@@ -43,6 +44,20 @@ function runtime(spawn: NodeSpawnPort['spawn']): NodeSpawnRuntime {
       ack: vi.fn(async () => ({})), fail: vi.fn(async () => ({})),
     } },
   };
+}
+
+async function waitForImmediate(assertion: () => void | Promise<void>): Promise<void> {
+  let failure: unknown;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      await assertion();
+      return;
+    } catch (error) {
+      failure = error;
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+  }
+  throw failure;
 }
 
 describe('AgentWorker relay deadlines', () => {
@@ -96,5 +111,91 @@ describe('AgentWorker relay deadlines', () => {
         transport: expect.objectContaining({ phase: 'timeout', cause: 'timeout', retryable: false }),
       }) }),
     );
+  });
+
+  it('durably retries failed exact cleanup after a late confirmation and terminal timeout', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'flows-node-worker-late-cleanup-'));
+    roots.push(dataDir);
+    let confirm!: (receipt: NodeSpawnReceipt) => void;
+    const spawn = vi.fn<NodeSpawnPort['spawn']>(async (input, beforeDispatch) => {
+      await beforeDispatch();
+      return new Promise<NodeSpawnReceipt>(resolve => {
+        confirm = receipt => resolve({ ...receipt, name: input.name });
+      });
+    });
+    const release = vi.fn<NodeSpawnPort['release']>()
+      .mockRejectedValueOnce(new Error('release response temporarily unavailable'))
+      .mockResolvedValueOnce({
+        id: 'inv_release_late', action: 'release', status: 'completed',
+        spawned: false, ready: false, released: true,
+      });
+    const nodeRuntime: NodeSpawnRuntime = {
+      authority: 'remote', publisher: { id: 'publisher_1', name: 'flows-publisher' },
+      baseUrl: 'https://cast.agentrelay.com',
+      port: {
+        dispatchFenceVersion: 1, targets: async () => [], spawn,
+        status: vi.fn(), release,
+      },
+      inbox: { inbox: {
+        subscribe: async function* () { return; },
+        ack: vi.fn(async () => ({})), fail: vi.fn(async () => ({})),
+      } },
+    };
+    const stepComplete = vi.fn<JournalClient['stepComplete']>(async () => (
+      {} as Awaited<ReturnType<JournalClient['stepComplete']>>
+    ));
+    const journal = client(stepComplete);
+    journal.journalRead = vi.fn(async () => {
+      throw new Error('cleanup-only reconciliation must not read the journal');
+    });
+    const worker = new AgentWorker(journal, {
+      workerId: 'worker_late_cleanup', pins: {}, dataDir, nodeSpawnRuntime: nodeRuntime,
+    });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    journal.emit('step.dispatch', dispatch('edit-late-cleanup', 'dispatch_latecleanup1', 50));
+    await vi.waitFor(() => expect(stepComplete).toHaveBeenCalledOnce());
+    expect(stepComplete).toHaveBeenCalledWith(
+      'run_timeout', 'edit-late-cleanup', 1, 'dispatch_latecleanup1', 'timeout', expect.any(Object),
+    );
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      confirm({
+        id: 'inv_spawn_late', action: 'spawn', status: 'completed',
+        nodeId: 'node_1', nodeName: 'desktop-1', name: 'placeholder',
+        agentId: 'agent_late', spawned: true, ready: true,
+      });
+      let pending: Awaited<ReturnType<typeof readNodeSpawnClaims>>[number] | undefined;
+      await waitForImmediate(async () => {
+        expect(release).toHaveBeenCalledOnce();
+        [pending] = await readNodeSpawnClaims(dataDir);
+        expect(pending!.claim).toMatchObject({
+          cleanupPending: { attempts: 1, lastError: 'release response temporarily unavailable' },
+        });
+      });
+      expect(pending!.claim.result).toBeUndefined();
+      expect(pending!.claim.release).toBeUndefined();
+
+      await waitForImmediate(() => expect(vi.getTimerCount()).toBeGreaterThan(0));
+      await vi.advanceTimersByTimeAsync(5_001);
+      let reconciled: Awaited<ReturnType<typeof readNodeSpawnClaims>>[number] | undefined;
+      await waitForImmediate(async () => {
+        expect(release).toHaveBeenCalledTimes(2);
+        [reconciled] = await readNodeSpawnClaims(dataDir);
+        expect(reconciled!.claim.release).toEqual({
+          invocationId: 'inv_release_late', status: 'completed',
+        });
+      });
+      expect(reconciled!.claim.cleanupPending).toBeUndefined();
+      expect(stepComplete).toHaveBeenCalledOnce();
+      expect(spawn).toHaveBeenCalledOnce();
+      expect(journal.journalRead).not.toHaveBeenCalled();
+      expect(errors).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+      await worker.close();
+    }
   });
 });

@@ -24,6 +24,7 @@ import {
 } from './agent-transcript.js';
 import { createNodeSpawnRuntime, createNodeSpawnRuntimeOwner, explicitServiceCallerFile,
   mergeNodeSpawnEnvironment, type NodeSpawnRuntime, type NodeSpawnRuntimeOwner } from './node-spawn-runtime.js';
+import { nodeSpawnCleanupRequired } from './node-spawn-cleanup.js';
 import { reconcileNodeResultSettlements } from './node-spawn-settlement.js';
 import { readNodeSpawnClaims } from './node-spawn-state.js';
 
@@ -263,7 +264,8 @@ export class AgentWorker extends EventEmitter {
               attempt: dispatch.attempt, taskIdentity: workerInstructionIdentity(spec.instruction, dispatch),
               dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema,
               nodeSpawnRuntime: this.options.nodeSpawnRuntime,
-              nodeSpawnRuntimeProvider: signal => this.nodeSpawnRuntimeOwner.get(signal) },
+              nodeSpawnRuntimeProvider: signal => this.nodeSpawnRuntimeOwner.get(signal),
+              nodeSpawnCleanupPending: () => this.scheduleSettlementReconcile() },
             this.options.environment, spec.cli_identity, spec.timeout_ms, spec.resume, spec.secrets,
             this.client.supportsFeature?.('step_secret_scoping') ?? true)
           : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
@@ -369,8 +371,9 @@ export class AgentWorker extends EventEmitter {
   private async reconcileRelaySettlementsOnce(): Promise<void> {
     if (this.options.dataDir === undefined || (this.closing && !this.attached)) return;
     const claims = await readNodeSpawnClaims(this.options.dataDir);
-    const hasPending = claims.some(entry => entry.claim.result?.settlement !== undefined
-      && entry.claim.result.settlement.settledAt === undefined);
+    const hasPending = claims.some(entry => nodeSpawnCleanupRequired(entry.claim)
+      || (entry.claim.result?.settlement !== undefined
+        && entry.claim.result.settlement.settledAt === undefined));
     if (!hasPending) return;
     const runtime = await this.nodeSpawnRuntimeOwner.get();
     let pending: number;

@@ -133,6 +133,7 @@ export interface AgentRelayContext {
   resultSchema?: unknown;
   nodeSpawnRuntime?: NodeSpawnRuntime;
   nodeSpawnRuntimeProvider?: (signal?: AbortSignal) => Promise<NodeSpawnRuntime>;
+  nodeSpawnCleanupPending?: () => void;
 }
 
 export async function runAgentCli(
@@ -423,7 +424,8 @@ async function runViaAgentRelay(
       runId: context.runId, stepId: context.stepId, idempotencyKey: context.idempotencyKey,
       attempt: context.attempt, dataDir: context.dataDir,
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
-    }, { signal, runtime: context.nodeSpawnRuntime, runtimeProvider: context.nodeSpawnRuntimeProvider });
+    }, { signal, runtime: context.nodeSpawnRuntime, runtimeProvider: context.nodeSpawnRuntimeProvider,
+      onCleanupPending: context.nodeSpawnCleanupPending });
     const receipt = { ...received.receipt,
       error: received.receipt.error === null ? null : redactRelayError(received.receipt.error) };
     const accounting = receipt.task_execution.accounting;

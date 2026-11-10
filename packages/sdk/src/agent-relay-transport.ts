@@ -3,13 +3,14 @@ import { claimNodeSpawnAtPath, hasNodeSpawnDispatchFence,
   nodeSpawnClaimPath, recordNodeSpawn,
   type NodeSpawnClaim } from './node-spawn-state.js';
 import { dispatchFencedNodeSpawn } from './node-spawn-dispatch.js';
+import { releaseNodeSpawnClaim } from './node-spawn-cleanup.js';
 import { nodeResultInstruction, waitForNodeResult } from './node-spawn-result.js';
 import { durableNodeResultDelivery } from './node-spawn-settlement.js';
 import { waitForNodeOperation } from './node-spawn-deadline.js';
 import { createNodeSpawnRuntime, type NodeSpawnRuntime } from './node-spawn-runtime.js';
 import { NodeSpawnError, nonempty, validIdempotencyKey,
   validNodeSpawnIdentity, validNodeSpawnReceipt,
-  type NodeSpawnIdentity, type NodeSpawnReceipt } from './node-spawn.js';
+  type NodeSpawnReceipt } from './node-spawn.js';
 import type { RelayTaskResult } from './agent-relay-receipt.js';
 
 export type AgentTransport = 'direct' | 'relay';
@@ -50,8 +51,15 @@ export class AgentRelayTransportError extends Error {
   }
 }
 
-const CLEANUP_ATTEMPT_TIMEOUT_MS = 15_000;
 const claimExecutions = new Map<string, Promise<void>>();
+
+interface AgentRelayTaskOptions extends AgentRelayEnv {
+  runtime?: NodeSpawnRuntime;
+  runtimeProvider?: (signal?: AbortSignal) => Promise<NodeSpawnRuntime>;
+  signal?: AbortSignal;
+  /** Wakes durable reconciliation after a late exact release remains pending. */
+  onCleanupPending?: () => void;
+}
 
 /**
  * Dispatches exactly once through an Agent Relay node and waits on the
@@ -60,8 +68,7 @@ const claimExecutions = new Map<string, Promise<void>>();
  */
 export async function runAgentRelayTask(
   request: AgentRelayTaskRequest,
-  options: AgentRelayEnv & { runtime?: NodeSpawnRuntime;
-    runtimeProvider?: (signal?: AbortSignal) => Promise<NodeSpawnRuntime>; signal?: AbortSignal } = {},
+  options: AgentRelayTaskOptions = {},
 ): Promise<RelayTaskResult> {
   const taskStartedAt = Date.now();
   options.signal?.throwIfAborted();
@@ -84,8 +91,7 @@ export async function runAgentRelayTask(
 async function runAgentRelayTaskExclusive(
   request: AgentRelayTaskRequest,
   claimPath: string,
-  options: AgentRelayEnv & { runtime?: NodeSpawnRuntime;
-    runtimeProvider?: (signal?: AbortSignal) => Promise<NodeSpawnRuntime>; signal?: AbortSignal },
+  options: AgentRelayTaskOptions,
   taskStartedAt: number,
   timeoutMs: number,
 ): Promise<RelayTaskResult> {
@@ -128,7 +134,8 @@ async function runAgentRelayTaskExclusive(
   }
   try {
     return await executeAgentRelayTask(
-      request, claimPath, runtime, options.signal, taskStartedAt, timeoutMs);
+      request, claimPath, runtime, options.signal, taskStartedAt, timeoutMs,
+      options.onCleanupPending);
   } finally {
     if (ownsRuntime) await runtime.disconnect?.().catch(() => undefined);
   }
@@ -183,6 +190,7 @@ async function executeAgentRelayTask(
   signal: AbortSignal | undefined,
   taskStartedAt: number,
   timeoutMs: number,
+  onCleanupPending: (() => void) | undefined,
 ): Promise<RelayTaskResult> {
   if (runtime.port.dispatchFenceVersion !== 1) throw new AgentRelayTransportError(
     'The node-spawn port does not implement durable dispatch-fence protocol version 1');
@@ -230,7 +238,7 @@ async function executeAgentRelayTask(
     if (!claimed.created && claim.spawn === undefined && claim.cleanup !== undefined) {
       if (claim.release === undefined) {
         releaseAttempted = true;
-        const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+        const cleanup = await releaseNodeSpawnClaim(runtime, claimed.path, claim);
         claim = cleanup.claim;
         if (cleanup.error !== undefined) throw cleanup.error;
       }
@@ -271,7 +279,7 @@ async function executeAgentRelayTask(
         if ((claim.cleanupPending !== undefined || claim.failure !== undefined)
           && claim.release === undefined) {
           releaseAttempted = true;
-          const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+          const cleanup = await releaseNodeSpawnClaim(runtime, claimed.path, claim);
           claim = cleanup.claim;
           if (cleanup.error !== undefined) throw cleanup.error;
           throw new NodeSpawnError(
@@ -300,7 +308,7 @@ async function executeAgentRelayTask(
     if (spawn === undefined) throw new AgentRelayTransportError('Node-spawn claim lost its confirmed receipt');
     if (claim.result !== undefined && claim.release === undefined) {
       releaseAttempted = true;
-      const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+      const cleanup = await releaseNodeSpawnClaim(runtime, claimed.path, claim);
       claim = cleanup.claim;
       if (cleanup.error !== undefined) throw cleanup.error;
     }
@@ -338,7 +346,7 @@ async function executeAgentRelayTask(
     const delivery = durableNodeResultDelivery(runtime, claimed.path, claim, observed);
     if (claim.release === undefined) {
       releaseAttempted = true;
-      const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+      const cleanup = await releaseNodeSpawnClaim(runtime, claimed.path, claim);
       claim = cleanup.claim;
       if (cleanup.error !== undefined) throw cleanup.error;
     }
@@ -392,7 +400,7 @@ async function executeAgentRelayTask(
     if ((claim.spawn !== undefined || claim.cleanup !== undefined)
       && claim.release === undefined && !releaseAttempted) {
       releaseAttempted = true;
-      const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+      const cleanup = await releaseNodeSpawnClaim(runtime, claimed.path, claim);
       claim = cleanup.claim;
       cleanupError ??= cleanup.error;
     }
@@ -426,65 +434,9 @@ async function executeAgentRelayTask(
     }
     try { await recordNodeSpawn(claimed.path, claim); }
     catch { /* Exact in-memory identity is still sufficient for this cleanup attempt. */ }
-    const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+    const cleanup = await releaseNodeSpawnClaim(runtime, claimed.path, claim);
     claim = cleanup.claim;
-  }
-}
-
-async function tryRelease(
-  runtime: NodeSpawnRuntime,
-  path: string,
-  claim: NodeSpawnClaim,
-  idempotencyKey: string,
-): Promise<{ claim: NodeSpawnClaim; error?: unknown }> {
-  const receipt: NodeSpawnIdentity | undefined = claim.spawn ?? claim.cleanup;
-  if (receipt === undefined || claim.release !== undefined) return { claim };
-  try {
-    const released = await boundedCleanup(runtime.port.release({ receipt,
-      idempotencyKey: releaseKey(idempotencyKey) }));
-    if (released.action !== 'release' || released.status !== 'completed'
-      || released.released !== true || !nonempty(released.id)) {
-      throw new NodeSpawnError('The node did not confirm exact agent release',
-        released.errorCode ?? 'release_unconfirmed');
-    }
-    const { cleanupPending: _cleanupPending, ...withoutPending } = claim;
-    const updated: NodeSpawnClaim = { ...withoutPending,
-      release: { invocationId: released.id, status: released.status } };
-    await recordNodeSpawn(path, updated);
-    return { claim: updated };
-  } catch (error) {
-    const updated: NodeSpawnClaim = { ...claim, cleanupPending: {
-      attempts: (claim.cleanupPending?.attempts ?? 0) + 1,
-      lastError: safeError(error),
-      updatedAt: Date.now(),
-    } };
-    try { await recordNodeSpawn(path, updated); }
-    catch (stateError) {
-      return { claim: updated,
-        error: new AgentRelayTransportError(`${safeError(error)}; cleanup state was not durable: ${safeError(stateError)}`, error) };
-    }
-    return { claim: updated, error };
-  }
-}
-
-async function boundedCleanup<T>(pending: Promise<T>): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new NodeSpawnError(
-      'Exact node cleanup did not confirm within its independent deadline', 'release_unconfirmed')),
-    CLEANUP_ATTEMPT_TIMEOUT_MS);
-  });
-  // A transport that ignores cancellation may settle after this attempt has
-  // durably recorded cleanupPending. Fold that late outcome into this promise
-  // so it cannot become an unhandled rejection; the next attempt reuses the
-  // same idempotency key and reconciles the exact release.
-  const outcome = pending.then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
-  try {
-    const settled = await Promise.race([outcome, deadline]);
-    if (!settled.ok) throw settled.error;
-    return settled.value;
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
+    if (cleanup.error !== undefined) onCleanupPending?.();
   }
 }
 
@@ -506,10 +458,6 @@ function stableAgentName(request: AgentRelayTaskRequest): string {
     .digest('hex').slice(0, 24);
   const label = request.stepId.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'step';
   return `rf-${label.slice(0, 30)}-${digest}`;
-}
-
-function releaseKey(key: string): string {
-  return `release_${createHash('sha256').update(key).digest('hex').slice(0, 32)}`;
 }
 
 function safeError(error: unknown): string {

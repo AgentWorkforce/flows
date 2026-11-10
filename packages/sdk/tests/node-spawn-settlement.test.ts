@@ -462,6 +462,100 @@ describe('durable node-result settlement', () => {
     await worker.close();
   });
 
+  it('reconciles failure plus exact identity when a crash precedes cleanupPending', async () => {
+    const dataDir = await dataDirectory('flows-node-cleanup-only-crash-');
+    const f = fixture();
+    f.runtime.inbox.inbox.subscribe = async function* () { return; };
+    f.release.mockRejectedValueOnce(new Error('release response lost during crash'));
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toMatchObject({ cleanupPending: true });
+    const [pending] = await readNodeSpawnClaims(dataDir);
+    const { cleanupPending: _cleanupPending, ...crashedBeforeCleanupPending } = pending!.claim;
+    await recordNodeSpawn(pending!.path, crashedBeforeCleanupPending);
+    const [crashed] = await readNodeSpawnClaims(dataDir);
+    expect(crashed!.claim.cleanupPending).toBeUndefined();
+    expect(crashed!.claim.failure).toBeDefined();
+    expect(crashed!.claim.result).toBeUndefined();
+    expect(crashed!.claim.release).toBeUndefined();
+
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      journalRead: vi.fn(async () => {
+        throw new Error('cleanup-only reconciliation must not read the journal');
+      }),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_cleanup_recovery', pins: {}, dataDir, nodeSpawnRuntime: f.runtime,
+    });
+    await worker.attach();
+    expect(f.release).toHaveBeenCalledTimes(2);
+    expect(client.journalRead).not.toHaveBeenCalled();
+    const [reconciled] = await readNodeSpawnClaims(dataDir);
+    expect(reconciled!.claim.release).toEqual({
+      invocationId: 'inv_release_1', status: 'completed',
+    });
+    expect(reconciled!.claim.cleanupPending).toBeUndefined();
+    expect(reconciled!.claim.result).toBeUndefined();
+    await worker.close();
+  });
+
+  it('releases an unreleased durable result before reading its terminal journal settlement', async () => {
+    const dataDir = await dataDirectory('flows-node-result-before-release-crash-');
+    const f = fixture();
+    const received = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    const [persisted] = await readNodeSpawnClaims(dataDir);
+    const { release: _release, ...crashedBeforeRelease } = persisted!.claim;
+    await recordNodeSpawn(persisted!.path, crashedBeforeRelease);
+
+    const order: string[] = [];
+    f.release.mockClear();
+    f.release.mockImplementation(async () => {
+      order.push('release');
+      return { id: 'inv_release_reconciled', action: 'release', status: 'completed',
+        spawned: false, ready: false, released: true };
+    });
+    f.ack.mockImplementation(async () => { order.push('ack'); return {}; });
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      journalRead: vi.fn(async () => {
+        order.push('journal');
+        expect(order).toEqual(['release', 'journal']);
+        return { entries: [terminalEntry()] };
+      }),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_result_release_recovery', pins: {}, dataDir, nodeSpawnRuntime: f.runtime,
+    });
+    await worker.attach();
+    expect(order).toEqual(['release', 'journal', 'ack']);
+    const [reconciled] = await readNodeSpawnClaims(dataDir);
+    expect(reconciled!.claim.release).toEqual({
+      invocationId: 'inv_release_reconciled', status: 'completed',
+    });
+    expect(reconciled!.claim.result?.settlement).toMatchObject({ settledAs: 'ack' });
+    await worker.close();
+  });
+
+  it('does not release an active spawn without durable terminal evidence', async () => {
+    const dataDir = await dataDirectory('flows-node-active-spawn-no-cleanup-');
+    const f = fixture();
+    await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    const [persisted] = await readNodeSpawnClaims(dataDir);
+    const { result: _result, release: _release, failure: _failure,
+      cleanupPending: _cleanupPending, ...active } = persisted!.claim;
+    await recordNodeSpawn(persisted!.path, active);
+    f.release.mockClear();
+    const journalRead = vi.fn(async () => {
+      throw new Error('active spawn reconciliation must not read the journal');
+    });
+
+    await expect(reconcileNodeResultSettlements(dataDir, f.runtime, { journalRead }))
+      .resolves.toBe(0);
+    expect(f.release).not.toHaveBeenCalled();
+    expect(journalRead).not.toHaveBeenCalled();
+  });
+
   it('skips a foreign pending settlement without blocking or rearming this runtime', async () => {
     const dataDir = await dataDirectory('flows-node-settlement-foreign-');
     const f = fixture();

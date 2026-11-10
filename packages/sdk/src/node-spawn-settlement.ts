@@ -1,6 +1,7 @@
 import type { JournalClient } from './journal-client.js';
 import type { JournalEvent } from './journal-reader.js';
 import type { NodeResultDelivery } from './node-spawn-result.js';
+import { nodeSpawnCleanupRequired, releaseNodeSpawnClaim } from './node-spawn-cleanup.js';
 import { readNodeSpawnClaim, readNodeSpawnClaims, recordNodeSpawn,
   type NodeSpawnClaim } from './node-spawn-state.js';
 import type { NodeSpawnRuntime } from './node-spawn-runtime.js';
@@ -165,7 +166,7 @@ async function serializeSettlementMutation<T>(path: string, mutate: () => Promis
   }
 }
 
-/** Reconciles journaled result settlements left by a crash or failed inbox call. */
+/** Reconciles exact cleanup and journaled result settlement left by a crash or failed call. */
 export async function reconcileNodeResultSettlements(
   dataDir: string,
   runtime: NodeSpawnRuntime,
@@ -185,15 +186,20 @@ async function reconcileNodeResultSettlement(
   runtime: NodeSpawnRuntime,
   journal: Pick<JournalClient, 'journalRead'>,
 ): Promise<Reconciliation> {
-  const claim = await readNodeSpawnClaim(path);
-  const result = claim.result;
-  const settlement = result?.settlement;
-  if (result === undefined || settlement === undefined || settlement.settledAt !== undefined) return 'complete';
+  let claim = await readNodeSpawnClaim(path);
   if (claim.baseUrl !== runtime.baseUrl
     || claim.publisherId !== runtime.publisher.id
     || claim.publisherName !== runtime.publisher.name) {
     return 'foreign';
   }
+  if (nodeSpawnCleanupRequired(claim)) {
+    const cleanup = await releaseNodeSpawnClaim(runtime, path, claim);
+    claim = cleanup.claim;
+    if (cleanup.error !== undefined) throw cleanup.error;
+  }
+  const result = claim.result;
+  const settlement = result?.settlement;
+  if (result === undefined || settlement === undefined || settlement.settledAt !== undefined) return 'complete';
   const live = liveTeardowns.get(path);
   if (live !== undefined) {
     const failed = [...live.barriers].find(item => item.settled && item.failure !== undefined);
