@@ -185,7 +185,7 @@ async function abortableNext<T>(
 export function readNodeResult(value: unknown, expected: NodeResultCorrelation): NodeResultEnvelope {
   if (!isRecord(value) || value.version !== 1 || value.run_id !== expected.runId
     || value.step_id !== expected.stepId || value.dispatch_id !== expected.dispatchId
-    || !['completed', 'failed'].includes(String(value.status))) {
+    || (value.status !== 'completed' && value.status !== 'failed')) {
     throw new Error('Spawned agent result has invalid attempt correlation');
   }
   if (value.status === 'completed' && !Object.hasOwn(value, 'output')) {

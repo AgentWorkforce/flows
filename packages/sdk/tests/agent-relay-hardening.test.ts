@@ -50,6 +50,25 @@ describe('node-spawn result hardening', () => {
     expect(fail).toHaveBeenCalledWith(expect.objectContaining({ inboxItemId: 'delivery_bad', retry: false }));
   });
 
+  it('dead-letters an array-valued result status instead of accepting a malformed claim value', async () => {
+    const fail = vi.fn(async () => ({}));
+    const delivery = await waitForNodeResult({ inbox: {
+      subscribe: async function* () { yield { id: 'delivery_array_status', message: {
+        id: 'message_array_status', from: { id: 'agent_1', name: 'worker' },
+        text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1', step_id: 'step_1',
+          dispatch_id: correlation.dispatchId, status: ['completed'], output: { ok: true } }),
+      } }; },
+      ack: async () => ({}), fail,
+    } }, expected);
+    expect(delivery.envelope).toMatchObject({ status: 'failed', error: expect.stringContaining('correlation') });
+    expect(delivery.settlementAction).toBe('fail');
+    expect(fail).not.toHaveBeenCalled();
+    await delivery.ack();
+    expect(fail).toHaveBeenCalledWith(expect.objectContaining({
+      inboxItemId: 'delivery_array_status', retry: false,
+    }));
+  });
+
   it('closes only the normal inbox subscription without acknowledging the delivery', async () => {
     const returned = vi.fn(async () => { throw new Error('iterator close failed'); });
     let delivered = false;
