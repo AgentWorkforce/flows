@@ -49,16 +49,18 @@ in Desktop rather than editing the file.
 
 ## Custom `NodeSpawnPort` implementations
 
-Ports must now declare `dispatchFenceVersion: 1` and await the supplied
-`beforeDispatch` callback immediately before the first irreversible spawn
-call. Preflight that fails before that callback may throw the public
-`NodeSpawnPreDispatchError` to preserve safe retry; using that marker after an
-effect may have started is a protocol violation. Existing one-argument
-`spawn` methods must be migrated even though JavaScript permits them to ignore
-the callback. The required version field makes an unchanged port a type error,
-and runtime use fails before claim creation. A port that falsely declares the
-version but omits the callback is fenced and refused after its first uncertain
-call.
+Ports must declare `dispatchFenceVersion: 1` and accept the supplied
+`beforeDispatch` callback. Flows cannot prove that arbitrary port preflight is
+side-effect-free, so it durably fences a custom port before entering `spawn`;
+any error from that call is permanently ambiguous and is not retried. Calling
+`beforeDispatch` remains required for forward compatibility and is idempotent
+after that fence. `NodeSpawnPreDispatchError` preserves retry only for the SDK's
+exact built-in local and remote implementations, whose preflight is audited;
+it does not reopen a custom port's fenced claim. Existing one-argument `spawn`
+methods must be migrated even though JavaScript permits them to ignore the
+callback. The required version field makes an unchanged port a type error, and
+runtime use fails before claim creation. Overriding a built-in port's `spawn`
+method also makes that instance custom and therefore fenced before entry.
 
 ## Hosted and self-hosted execution
 

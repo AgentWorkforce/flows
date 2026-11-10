@@ -67,12 +67,12 @@ export interface NodeReleaseRequest {
   reason?: string;
 }
 
-/** Publishes the durable write-ahead fact immediately before an irreversible spawn call. */
+/** Requests the durable write-ahead fact before an irreversible spawn call. */
 export type BeforeNodeDispatch = () => Promise<void>;
 
 /** Credentials and transport stay inside an implementation of this port. */
 export interface NodeSpawnPort {
-  /** Proves this port implements the required durable pre-dispatch callback protocol. */
+  /** Declares participation in the durable dispatch-fence protocol. */
   readonly dispatchFenceVersion: 1;
   targets(): Promise<NodeSpawnTarget[]>;
   spawn(request: NodeSpawnRequest, beforeDispatch: BeforeNodeDispatch): Promise<NodeSpawnReceipt>;

@@ -66,16 +66,17 @@ blindly retried. A recorded invocation is reconciled with
 collision protection at the node.
 
 Custom `NodeSpawnPort` implementations must declare `dispatchFenceVersion: 1`
-and await the supplied `beforeDispatch` callback immediately before their
-first irreversible spawn call. Preflight that fails before entering that
-callback may throw the exported `NodeSpawnPreDispatchError`; this is a
-privileged assertion that no remote effect was attempted, not a generic error
-wrapper. Ports must never use it for an error at or after dispatch. Existing
-one-argument `spawn` implementations are not compatible even though JavaScript
-can ignore extra arguments: the required protocol field makes them a type
-error, and the runtime refuses a missing or unknown version before creating a
-durable claim. A falsely declared port that omits the callback is fenced and
-fails closed after its first uncertain call.
+and accept the supplied `beforeDispatch` callback. Because Flows cannot audit
+arbitrary port code, it publishes and fsyncs the fence before entering a custom
+`spawn`; an error from that call is permanently ambiguous and cannot be retried.
+The callback remains part of the protocol and is idempotent after publication.
+Only the SDK's exact built-in local and remote port methods may use
+`NodeSpawnPreDispatchError` to retain retryable, side-effect-free preflight.
+Replacing or overriding either built-in method makes it custom and fences it
+before entry. Existing one-argument `spawn` implementations are not compatible
+even though JavaScript can ignore extra arguments: the required protocol field
+makes them a type error, and the runtime refuses a missing or unknown version
+before creating a durable claim.
 
 The claim also fixes the task's original start time. Resume never grants a new
 execution deadline. Once a correlated result was durably observed before that
