@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -11,7 +11,7 @@ import type { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { WorkerLeaseLostError } from '../src/worker-lease.js';
 
-const owner = vi.hoisted(() => ({ get: vi.fn(), close: vi.fn(async () => {}) }));
+const owner = vi.hoisted(() => ({ current: vi.fn(), get: vi.fn(), close: vi.fn(async () => {}) }));
 vi.mock('../src/node-spawn-runtime.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/node-spawn-runtime.js')>(),
   createNodeSpawnRuntimeOwner: () => owner,
@@ -22,6 +22,7 @@ import { AgentWorker } from '../src/worker.js';
 const roots: string[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
+  owner.current.mockReset();
   owner.get.mockReset();
   owner.close.mockClear();
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
@@ -122,6 +123,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
         ack: vi.fn(async () => ({})), fail: vi.fn(async () => ({})),
       } },
     };
+    owner.current.mockReturnValue(runtime);
     owner.get.mockResolvedValue(runtime);
     const client = Object.assign(new EventEmitter(), {
       workerAttach: vi.fn(async () => ({})),
@@ -211,6 +213,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
         fail,
       } },
     };
+    owner.current.mockReturnValue(runtime);
     owner.get.mockResolvedValue(runtime);
     let completed = false;
     let terminalPayload: Record<string, unknown> = {};
@@ -300,6 +303,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       idempotencyKey: 'dispatch_1234567890', attempt: 1, dataDir,
     }, { runtime });
     await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    owner.current.mockReturnValue(runtime);
     owner.get.mockResolvedValue(runtime);
     const client = Object.assign(new EventEmitter(), {
       workerAttach: vi.fn(async () => ({})),
@@ -323,7 +327,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     expect(owner.close).toHaveBeenCalledOnce();
   });
 
-  it('does not acquire a runtime for an unowned pending settlement', async () => {
+  it('does not acquire a runtime for pending state and reconciles it once established', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-lazy-foreign-settlement-'));
     roots.push(dataDir);
     let spawnedName = '';
@@ -362,10 +366,23 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       idempotencyKey: 'dispatch_prior123', attempt: 1, dataDir,
     }, { runtime: priorRuntime });
     await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    const malformed = join(dataDir, 'node-spawns', 'malformed.json');
+    await writeFile(malformed, '{');
 
     owner.get.mockRejectedValue(new Error('remote publisher is not configured'));
     const workerAttach = vi.fn(async () => ({}));
-    const client = Object.assign(new EventEmitter(), { workerAttach });
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach,
+      journalRead: vi.fn(async () => ({ entries: [{
+        seq: 2, segment_id: 0, entry_type: 'step.completed', run_id: 'run_prior',
+        step_id: 'edit', attempt: 1, at_ms: Date.now(), payload: {
+          completionReason: 'success', trajectory_tail: { relay_task: { task_execution: {
+            run_id: 'run_prior', step_id: 'edit', dispatch_id: 'dispatch_prior123',
+            delivery_id: 'delivery_prior', message_id: 'message_prior',
+          } } },
+        },
+      }] })),
+    });
     const worker = new AgentWorker(client as unknown as JournalClient, {
       workerId: 'worker_without_relay_authority', pins: {}, dataDir,
       environment: { RELAY_AGENT_TOKEN: '', RELAYFLOW_SERVICE_CALLER_FILE: '' },
@@ -376,9 +393,17 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     expect(owner.get).not.toHaveBeenCalled();
     expect(ack).not.toHaveBeenCalled();
 
+    await rm(malformed);
+    owner.get.mockResolvedValue(priorRuntime);
+    await expect(owner.get()).resolves.toBe(priorRuntime);
+    owner.current.mockReturnValue(priorRuntime);
+    const state = worker as unknown as { reconcileRelaySettlementsAfterDrain(): Promise<void> };
+    await state.reconcileRelaySettlementsAfterDrain();
+    expect(ack).toHaveBeenCalledOnce();
+
     await expect(worker.close()).resolves.toBeUndefined();
-    expect(owner.get).not.toHaveBeenCalled();
-    expect(ack).not.toHaveBeenCalled();
+    expect(owner.get).toHaveBeenCalledOnce();
+    expect(ack).toHaveBeenCalledOnce();
   });
 
   it('shares one runtime and one concurrent close promise through dispatch drain', async () => {
@@ -442,6 +467,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
         fail: vi.fn(async () => ({})),
       } },
     };
+    owner.current.mockReturnValue(runtime);
     owner.get.mockResolvedValue(runtime);
     owner.close.mockImplementation(async () => {
       order.push('close');
@@ -554,6 +580,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
         fail: vi.fn(async () => ({})),
       } },
     };
+    owner.current.mockReturnValue(runtime);
     owner.get.mockResolvedValue(runtime);
     const stepHeartbeat = vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 }));
     const client = Object.assign(new EventEmitter(), {
@@ -650,6 +677,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
         fail: vi.fn(async () => ({})),
       } },
     };
+    owner.current.mockReturnValue(runtime);
     owner.get.mockResolvedValue(runtime);
     owner.close.mockImplementation(async () => { order.push('close'); });
     const heartbeatCalls = new Map<string, number>();

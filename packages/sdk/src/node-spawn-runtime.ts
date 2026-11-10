@@ -30,6 +30,8 @@ export interface NodeSpawnRuntime {
 
 export interface NodeSpawnRuntimeOwner {
   get(signal?: AbortSignal): Promise<NodeSpawnRuntime>;
+  /** Returns only an already-established runtime; never creates authority. */
+  current(): NodeSpawnRuntime | undefined;
   close(): Promise<void>;
 }
 
@@ -177,6 +179,7 @@ export function createNodeSpawnRuntimeOwner(
 ): NodeSpawnRuntimeOwner {
   const controller = new AbortController();
   let pending: Promise<NodeSpawnRuntime> | undefined;
+  let established = provided;
   let closed = false;
   let closePromise: Promise<void> | undefined;
   const get = async (signal?: AbortSignal): Promise<NodeSpawnRuntime> => {
@@ -184,7 +187,10 @@ export function createNodeSpawnRuntimeOwner(
     if (closed) throw new NodeSpawnError('Node-spawn runtime owner is closed', 'task_cancelled');
     if (provided !== undefined) return provided;
     if (pending === undefined) {
-      const created = factory(controller.signal);
+      const created = factory(controller.signal).then(runtime => {
+        established = runtime;
+        return runtime;
+      });
       pending = created;
       void created.catch(() => { if (pending === created) pending = undefined; });
     }
@@ -197,7 +203,11 @@ export function createNodeSpawnRuntimeOwner(
     const runtime = await pending?.catch(() => undefined);
     await runtime?.disconnect?.().catch(() => undefined);
   };
-  return { get, close: () => closePromise ??= closeOnce() };
+  return {
+    get,
+    current: () => closed ? undefined : established,
+    close: () => closePromise ??= closeOnce(),
+  };
 }
 
 async function bindCore(

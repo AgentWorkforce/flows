@@ -68,18 +68,22 @@ describe('remote node-spawn runtime', () => {
       disconnect } satisfies NodeSpawnRuntime;
     const factory = vi.fn((_signal: AbortSignal) => new Promise<NodeSpawnRuntime>(done => { resolve = done; }));
     const owner = createNodeSpawnRuntimeOwner(undefined, factory);
+    expect(owner.current()).toBeUndefined();
     const cancelled = new AbortController();
     const first = owner.get(cancelled.signal);
     const second = owner.get();
+    expect(owner.current()).toBeUndefined();
     cancelled.abort(new Error('first task lost its lease'));
     await expect(first).rejects.toThrow('first task lost its lease');
     expect(factory).toHaveBeenCalledOnce();
     expect(factory.mock.calls[0]![0].aborted).toBe(false);
     resolve(runtime);
     await expect(second).resolves.toBe(runtime);
+    expect(owner.current()).toBe(runtime);
     await expect(owner.get()).resolves.toBe(runtime);
     expect(disconnect).not.toHaveBeenCalled();
     await expect(owner.close()).resolves.toBeUndefined();
+    expect(owner.current()).toBeUndefined();
     expect(disconnect).toHaveBeenCalledOnce();
   });
 

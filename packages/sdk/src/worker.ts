@@ -77,7 +77,6 @@ export class AgentWorker extends EventEmitter {
   private settlementDrain?: Promise<void>;
   private settlementReconcile?: Promise<void>;
   private readonly localDesktopAuthority: boolean;
-  private readonly nodeSpawnAuthorityConfigured: boolean;
   private readonly inFlight: Set<Promise<void>> = new Set();
   private readonly nodeSpawnRuntimeOwner: NodeSpawnRuntimeOwner;
 
@@ -91,9 +90,6 @@ export class AgentWorker extends EventEmitter {
     this.localDesktopAuthority = options.nodeSpawnRuntime === undefined
       ? serviceCallerFile !== undefined
       : options.nodeSpawnRuntime.authority === 'desktop';
-    this.nodeSpawnAuthorityConfigured = options.nodeSpawnRuntime !== undefined
-      || serviceCallerFile !== undefined
-      || (runtimeEnvironment.RELAY_AGENT_TOKEN?.trim() ?? '') !== '';
     this.nodeSpawnRuntimeOwner = createNodeSpawnRuntimeOwner(
       options.nodeSpawnRuntime,
       signal => createNodeSpawnRuntime(runtimeEnvironment, { signal }),
@@ -375,22 +371,16 @@ export class AgentWorker extends EventEmitter {
 
   private async reconcileRelaySettlementsOnce(): Promise<void> {
     if (this.options.dataDir === undefined || (this.closing && !this.attached)) return;
+    const runtime = this.nodeSpawnRuntimeOwner.current();
+    if (runtime === undefined) return;
     const claims = await readNodeSpawnClaims(this.options.dataDir);
-    const hasPending = claims.some(entry => nodeSpawnCleanupRequired(entry.claim)
-      || (entry.claim.result?.settlement !== undefined
-        && entry.claim.result.settlement.settledAt === undefined));
-    if (!hasPending || !this.nodeSpawnAuthorityConfigured) return;
-    let runtime: NodeSpawnRuntime;
-    try {
-      runtime = await this.nodeSpawnRuntimeOwner.get();
-    } catch (error) {
-      this.scheduleSettlementReconcile();
-      // A lazy remote worker cannot identify a pending claim's owner until its
-      // runtime binds. A foreign claim or unavailable remote authority must
-      // not stop an otherwise direct-only worker from attaching.
-      if (!this.attached && !this.localDesktopAuthority) return;
-      throw error;
-    }
+    const hasPending = claims.some(entry => entry.claim.baseUrl === runtime.baseUrl
+      && entry.claim.publisherId === runtime.publisher.id
+      && entry.claim.publisherName === runtime.publisher.name
+      && (nodeSpawnCleanupRequired(entry.claim)
+        || (entry.claim.result?.settlement !== undefined
+          && entry.claim.result.settlement.settledAt === undefined)));
+    if (!hasPending) return;
     let pending: number;
     try {
       pending = await reconcileNodeResultSettlements(this.options.dataDir, runtime, this.client);
