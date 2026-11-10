@@ -17,7 +17,6 @@ import {
   type NodeSpawnRequest,
   type NodeSpawnTarget,
 } from './node-spawn.js';
-import { registerOfficialNodeSpawnPort } from './node-spawn-dispatch.js';
 
 interface RelayAgent { id: string; name: string }
 interface RelayNode {
@@ -53,9 +52,7 @@ export interface RemoteNodeSpawnClient {
 export class RemoteNodeSpawnPort implements NodeSpawnPort {
   readonly dispatchFenceVersion = 1 as const;
 
-  constructor(private readonly client: RemoteNodeSpawnClient) {
-    registerOfficialNodeSpawnPort(this, RemoteNodeSpawnPort.prototype.spawn);
-  }
+  constructor(private readonly client: RemoteNodeSpawnClient) {}
 
   async targets(): Promise<NodeSpawnTarget[]> {
     return (await this.client.nodes.list()).map(node => ({

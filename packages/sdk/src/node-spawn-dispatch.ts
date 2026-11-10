@@ -14,33 +14,33 @@ interface FencedNodeSpawnOptions {
   settleLate(outcome: { spawn?: NodeSpawnReceipt; error?: unknown }): Promise<void>;
 }
 
-const officialNodeSpawnPorts = new WeakMap<NodeSpawnPort, NodeSpawnPort['spawn']>();
+const retryablePreflightPorts = new WeakMap<NodeSpawnPort, NodeSpawnPort['spawn']>();
 
 /**
  * Registers the exact built-in spawn implementation that may perform proven
  * side-effect-free preflight before publishing the durable dispatch fence.
  * Replaced or overridden methods remain untrusted and are fenced before entry.
  */
-export function registerOfficialNodeSpawnPort(
+export function registerRetryablePreflightPort(
   port: NodeSpawnPort,
   implementation: NodeSpawnPort['spawn'],
 ): void {
-  if (port.spawn === implementation) officialNodeSpawnPorts.set(port, implementation);
+  if (port.spawn === implementation) retryablePreflightPorts.set(port, implementation);
 }
 
-function isOfficialNodeSpawnPort(port: NodeSpawnPort): boolean {
-  return officialNodeSpawnPorts.get(port) === port.spawn;
+function hasRetryablePreflight(port: NodeSpawnPort): boolean {
+  return retryablePreflightPorts.get(port) === port.spawn;
 }
 
 /** Enters exactly one irreversible spawn behind a durable, one-way fence. */
 export async function dispatchFencedNodeSpawn(
   options: FencedNodeSpawnOptions,
 ): Promise<NodeSpawnReceipt> {
-  const officialPort = isOfficialNodeSpawnPort(options.port);
+  const retryablePreflight = hasRetryablePreflight(options.port);
   let dispatchPublished = false;
   let dispatchHookEntered = false;
   let pendingSpawn: Promise<NodeSpawnReceipt>;
-  if (!officialPort) {
+  if (!retryablePreflight) {
     // Arbitrary public ports cannot prove that their own preflight is free of
     // side effects. Publish before entering any user code, so a process crash
     // can never leave a provider-contacted claim looking retryable.

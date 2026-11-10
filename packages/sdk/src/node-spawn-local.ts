@@ -16,7 +16,7 @@ import {
   validIdempotencyKey,
   type BeforeNodeDispatch,
 } from './node-spawn.js';
-import { registerOfficialNodeSpawnPort } from './node-spawn-dispatch.js';
+import { registerRetryablePreflightPort } from './node-spawn-dispatch.js';
 
 /** The structural core-bridge surface Flows consumes. Kept here so the package stays optional. */
 export interface CoreBridgeClient {
@@ -217,7 +217,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     private readonly scope: Pick<CallerDescriptor, 'harnesses' | 'directoryScope'>,
     private readonly exactNode: { readonly id: string; readonly name: string },
   ) {
-    registerOfficialNodeSpawnPort(this, LocalNodeSpawnPort.prototype.spawn);
+    registerRetryablePreflightPort(this, LocalNodeSpawnPort.prototype.spawn);
   }
 
   async targets(): Promise<NodeSpawnTarget[]> {

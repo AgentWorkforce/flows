@@ -55,12 +55,12 @@ side-effect-free, so it durably fences a custom port before entering `spawn`;
 any error from that call is permanently ambiguous and is not retried. Calling
 `beforeDispatch` remains required for forward compatibility and is idempotent
 after that fence. `NodeSpawnPreDispatchError` preserves retry only for the SDK's
-exact built-in local and remote implementations, whose preflight is audited;
-it does not reopen a custom port's fenced claim. Existing one-argument `spawn`
+exact built-in local implementation, whose target preflight is audited;
+it does not reopen any other port's fenced claim. Existing one-argument `spawn`
 methods must be migrated even though JavaScript permits them to ignore the
 callback. The required version field makes an unchanged port a type error, and
-runtime use fails before claim creation. Overriding a built-in port's `spawn`
-method also makes that instance custom and therefore fenced before entry.
+runtime use fails before claim creation. Overriding the built-in local port's
+`spawn` method also removes that narrow trust and fences it before entry.
 
 ## Hosted and self-hosted execution
 
