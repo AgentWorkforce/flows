@@ -314,7 +314,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       }] })),
     });
     const worker = new AgentWorker(client as unknown as JournalClient, {
-      workerId: 'worker_recovery', pins: {}, dataDir,
+      workerId: 'worker_recovery', pins: {}, dataDir, nodeSpawnRuntime: runtime,
     });
     await expect(worker.attach()).rejects.toThrow('inbox unavailable');
     expect(owner.close).toHaveBeenCalledOnce();
@@ -323,7 +323,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     expect(owner.close).toHaveBeenCalledOnce();
   });
 
-  it('does not let an unowned pending settlement block lazy remote worker attach', async () => {
+  it('does not acquire a runtime for an unowned pending settlement', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-lazy-foreign-settlement-'));
     roots.push(dataDir);
     let spawnedName = '';
@@ -363,33 +363,22 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     }, { runtime: priorRuntime });
     await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
 
-    vi.useFakeTimers();
-    try {
-      owner.get.mockRejectedValue(new Error('remote publisher is not configured'));
-      const workerAttach = vi.fn(async () => ({}));
-      const client = Object.assign(new EventEmitter(), { workerAttach });
-      const worker = new AgentWorker(client as unknown as JournalClient, {
-        workerId: 'worker_without_relay_authority', pins: {}, dataDir,
-      });
+    owner.get.mockRejectedValue(new Error('remote publisher is not configured'));
+    const workerAttach = vi.fn(async () => ({}));
+    const client = Object.assign(new EventEmitter(), { workerAttach });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_without_relay_authority', pins: {}, dataDir,
+      environment: { RELAY_AGENT_TOKEN: '', RELAYFLOW_SERVICE_CALLER_FILE: '' },
+    });
 
-      await expect(worker.attach()).resolves.toBeUndefined();
-      expect(workerAttach).toHaveBeenCalledOnce();
-      expect(owner.get).toHaveBeenCalledOnce();
-      expect(ack).not.toHaveBeenCalled();
-      const state = worker as unknown as { settlementTimer?: NodeJS.Timeout };
-      expect(state.settlementTimer).toBeDefined();
+    await expect(worker.attach()).resolves.toBeUndefined();
+    expect(workerAttach).toHaveBeenCalledOnce();
+    expect(owner.get).not.toHaveBeenCalled();
+    expect(ack).not.toHaveBeenCalled();
 
-      owner.get.mockResolvedValue({
-        ...priorRuntime,
-        publisher: { id: 'publisher_other', name: 'other-publisher' },
-        baseUrl: 'https://other.agentrelay.test',
-      });
-      await expect(worker.close()).resolves.toBeUndefined();
-      expect(ack).not.toHaveBeenCalled();
-      expect(state.settlementTimer).toBeUndefined();
-    } finally {
-      vi.useRealTimers();
-    }
+    await expect(worker.close()).resolves.toBeUndefined();
+    expect(owner.get).not.toHaveBeenCalled();
+    expect(ack).not.toHaveBeenCalled();
   });
 
   it('shares one runtime and one concurrent close promise through dispatch drain', async () => {
