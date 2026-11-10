@@ -230,35 +230,32 @@ describe('durable node-spawn dispatch fence', () => {
     expect(calls).toBe(1);
   });
 
-  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
-    'does not call the remote effect when dispatch-fence publication fails',
-    async () => {
-      const dataDir = await dataDirectory('flows-dispatch-fence-write-failure-');
-      let prepare = true;
-      let remoteCalls = 0;
-      const worker = runtime(async (input, beforeDispatch) => {
-        if (prepare) throw preDispatchFailure('prepare fence failure');
-        await beforeDispatch();
-        remoteCalls += 1;
-        return readyReceipt(input.name);
-      });
+  it('does not call the remote effect when dispatch-fence publication fails', async () => {
+    const dataDir = await dataDirectory('flows-dispatch-fence-write-failure-');
+    let prepare = true;
+    let remoteCalls = 0;
+    const worker = runtime(async (input, beforeDispatch) => {
+      if (prepare) throw preDispatchFailure('prepare fence failure');
+      await beforeDispatch();
+      remoteCalls += 1;
+      return readyReceipt(input.name);
+    });
+    await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
+      .rejects.toThrow('prepare fence failure');
+    const [entry] = await readNodeSpawnClaims(dataDir);
+    prepare = false;
+    await chmod(dirname(entry!.path), 0o500);
+    try {
       await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
-        .rejects.toThrow('prepare fence failure');
-      const [entry] = await readNodeSpawnClaims(dataDir);
-      prepare = false;
-      await chmod(dirname(entry!.path), 0o500);
-      try {
-        await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
-          .rejects.toMatchObject({ code: 'EACCES' });
-      } finally {
-        await chmod(dirname(entry!.path), 0o700);
-      }
-      expect(remoteCalls).toBe(0);
-      await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
-        .resolves.toMatchObject({ receipt: { status: 'completed' } });
-      expect(remoteCalls).toBe(1);
-    },
-  );
+        .rejects.toMatchObject({ code: 'EACCES' });
+    } finally {
+      await chmod(dirname(entry!.path), 0o700);
+    }
+    expect(remoteCalls).toBe(0);
+    await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
+      .resolves.toMatchObject({ receipt: { status: 'completed' } });
+    expect(remoteCalls).toBe(1);
+  });
 
   it('retains the original claim deadline across a safe pre-dispatch retry', async () => {
     vi.useFakeTimers();
