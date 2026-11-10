@@ -30,7 +30,10 @@ kernel attempt and expected completion reason. The journal's terminal fact
 must contain that reason and the exact Relay delivery and message ids before a
 restart can acknowledge the inbox item. Inbox acknowledgement and rejection
 have independent deadlines; an unconfirmed operation remains in the durable
-outbox and is retried on worker attach, after dispatch drain, and on shutdown.
+outbox. It is retried on worker attach only when admission already established
+the exact matching publisher authority, then after dispatch drain and on
+shutdown while that authority remains established. A durable claim never
+creates authority or triggers credential discovery by itself.
 
 One worker uses one lazy publisher connection across all of its concurrent
 relay steps. Each step closes only its inbox iterator. The default runtime is

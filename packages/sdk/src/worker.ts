@@ -25,7 +25,7 @@ import {
 import { createNodeSpawnRuntime, createNodeSpawnRuntimeOwner, explicitServiceCallerFile,
   mergeNodeSpawnEnvironment, type NodeSpawnRuntime, type NodeSpawnRuntimeOwner } from './node-spawn-runtime.js';
 import { nodeSpawnCleanupRequired } from './node-spawn-cleanup.js';
-import { reconcileNodeResultSettlements } from './node-spawn-settlement.js';
+import { nodeSpawnClaimBelongsToRuntime, reconcileNodeResultSettlements } from './node-spawn-settlement.js';
 import { readNodeSpawnClaims } from './node-spawn-state.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
@@ -370,12 +370,18 @@ export class AgentWorker extends EventEmitter {
 
   private async reconcileRelaySettlementsOnce(): Promise<void> {
     if (this.options.dataDir === undefined || (this.closing && !this.attached)) return;
+    // Durable claims are not authority. A direct-only worker must not read
+    // ambient credentials or contact Relay merely because another publisher
+    // left state in the shared data directory. Explicit Desktop admission or
+    // a real Relay dispatch establishes the only runtime this worker may use.
+    const runtime = this.nodeSpawnRuntimeOwner.peek();
+    if (runtime === undefined) return;
     const claims = await readNodeSpawnClaims(this.options.dataDir);
-    const hasPending = claims.some(entry => nodeSpawnCleanupRequired(entry.claim)
-      || (entry.claim.result?.settlement !== undefined
-        && entry.claim.result.settlement.settledAt === undefined));
+    const hasPending = claims.some(entry => nodeSpawnClaimBelongsToRuntime(entry.claim, runtime)
+      && (nodeSpawnCleanupRequired(entry.claim)
+        || (entry.claim.result?.settlement !== undefined
+          && entry.claim.result.settlement.settledAt === undefined)));
     if (!hasPending) return;
-    const runtime = await this.nodeSpawnRuntimeOwner.get();
     let pending: number;
     try {
       pending = await reconcileNodeResultSettlements(this.options.dataDir, runtime, this.client);

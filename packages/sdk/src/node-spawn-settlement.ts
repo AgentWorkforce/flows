@@ -27,6 +27,16 @@ type Reconciliation = 'complete' | 'pending' | 'foreign';
 const liveTeardowns = new Map<string, LiveTeardownGroup>();
 const settlementMutations = new Map<string, Promise<void>>();
 
+/** True only when a durable claim belongs to this already-established publisher authority. */
+export function nodeSpawnClaimBelongsToRuntime(
+  claim: Pick<NodeSpawnClaim, 'baseUrl' | 'publisherId' | 'publisherName'>,
+  runtime: Pick<NodeSpawnRuntime, 'baseUrl' | 'publisher'>,
+): boolean {
+  return claim.baseUrl === runtime.baseUrl
+    && claim.publisherId === runtime.publisher.id
+    && claim.publisherName === runtime.publisher.name;
+}
+
 export function durableNodeResultDelivery(
   runtime: NodeSpawnRuntime,
   path: string,
@@ -187,9 +197,7 @@ async function reconcileNodeResultSettlement(
   journal: Pick<JournalClient, 'journalRead'>,
 ): Promise<Reconciliation> {
   let claim = await readNodeSpawnClaim(path);
-  if (claim.baseUrl !== runtime.baseUrl
-    || claim.publisherId !== runtime.publisher.id
-    || claim.publisherName !== runtime.publisher.name) {
+  if (!nodeSpawnClaimBelongsToRuntime(claim, runtime)) {
     return 'foreign';
   }
   if (nodeSpawnCleanupRequired(claim)) {

@@ -7,14 +7,23 @@ import { NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
 import { runAgentRelayTask } from '../src/agent-relay-transport.js';
 import type { NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
 import type { NodeSpawnPort } from '../src/node-spawn.js';
+import { claimNodeSpawn, readNodeSpawnClaims, type NodeSpawnClaim } from '../src/node-spawn-state.js';
 import type { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { WorkerLeaseLostError } from '../src/worker-lease.js';
 
-const owner = vi.hoisted(() => ({ get: vi.fn(), close: vi.fn(async () => {}) }));
+const owner = vi.hoisted(() => ({ get: vi.fn(), peek: vi.fn(), close: vi.fn(async () => {}) }));
 vi.mock('../src/node-spawn-runtime.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/node-spawn-runtime.js')>(),
-  createNodeSpawnRuntimeOwner: () => owner,
+  createNodeSpawnRuntimeOwner: () => ({
+    get: async (signal?: AbortSignal) => {
+      const runtime = await owner.get(signal);
+      owner.peek.mockReturnValue(runtime);
+      return runtime;
+    },
+    peek: () => owner.peek(),
+    close: () => owner.close(),
+  }),
 }));
 
 import { AgentWorker } from '../src/worker.js';
@@ -23,11 +32,113 @@ const roots: string[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
   owner.get.mockReset();
+  owner.peek.mockReset();
   owner.close.mockClear();
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
 });
 
 describe('AgentWorker node-spawn runtime ownership', () => {
+  it('does not acquire authority or block attach for a foreign pending claim', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'flows-node-foreign-claim-'));
+    roots.push(dataDir);
+    await claimNodeSpawn(dataDir, pendingCleanupClaim(
+      'publisher_foreign', 'foreign-publisher', 'dispatch_foreign_claim', 'agent_foreign'));
+    owner.get.mockRejectedValue(new Error('publisher_token_required'));
+    const journalRead = vi.fn(async () => {
+      throw new Error('foreign claim must not read this worker journal');
+    });
+    const workerAttach = vi.fn(async () => ({}));
+    const client = Object.assign(new EventEmitter(), { workerAttach, journalRead });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_foreign_claim', pins: {}, dataDir,
+    });
+
+    await expect(worker.attach()).resolves.toBeUndefined();
+    await expect(worker.close()).resolves.toBeUndefined();
+    expect(owner.peek).toHaveBeenCalled();
+    expect(owner.get).not.toHaveBeenCalled();
+    expect(journalRead).not.toHaveBeenCalled();
+    expect(workerAttach).toHaveBeenCalledOnce();
+    const [unchanged] = await readNodeSpawnClaims(dataDir);
+    expect(unchanged?.claim).toMatchObject({
+      publisherId: 'publisher_foreign', cleanup: { agentId: 'agent_foreign' },
+    });
+    expect(unchanged?.claim.release).toBeUndefined();
+  });
+
+  it('reconciles only matching old claims after a real dispatch establishes authority', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'flows-node-lazy-authority-'));
+    roots.push(dataDir);
+    await claimNodeSpawn(dataDir, pendingCleanupClaim(
+      'publisher_1', 'flows-publisher', 'dispatch_matching_old', 'agent_matching_old'));
+    await claimNodeSpawn(dataDir, pendingCleanupClaim(
+      'publisher_foreign', 'foreign-publisher', 'dispatch_foreign_old', 'agent_foreign_old'));
+    let spawnedName = '';
+    const release = vi.fn<NodeSpawnPort['release']>(async input => ({
+      id: `release_${input.receipt.agentId}`, action: 'release', status: 'completed',
+      spawned: false, ready: false, released: true,
+    }));
+    const runtime: NodeSpawnRuntime = {
+      publisher: { id: 'publisher_1', name: 'flows-publisher' },
+      baseUrl: 'https://cast.agentrelay.com',
+      port: {
+        dispatchFenceVersion: 1,
+        targets: async () => [],
+        spawn: async (input, beforeDispatch) => {
+          await beforeDispatch();
+          spawnedName = input.name;
+          return { id: 'spawn_lazy_authority', action: 'spawn', status: 'completed',
+            nodeId: 'node_1', nodeName: 'desktop-1', name: input.name,
+            agentId: 'agent_lazy_authority', spawned: true, ready: true };
+        },
+        status: vi.fn(),
+        release,
+      },
+      inbox: { inbox: {
+        subscribe: async function* () {
+          yield { id: 'delivery_lazy_authority', message: { id: 'message_lazy_authority',
+            from: { id: 'agent_lazy_authority', name: spawnedName },
+            text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_parallel',
+              step_id: 'edit-lazy-authority', dispatch_id: 'dispatch_lazyauthority',
+              status: 'completed', output: { summary: 'done' } }) } };
+        },
+        ack: vi.fn(async () => ({})),
+        fail: vi.fn(async () => ({})),
+      } },
+    };
+    owner.get.mockResolvedValue(runtime);
+    const stepComplete = vi.fn<JournalClient['stepComplete']>(async () =>
+      ({} as Awaited<ReturnType<JournalClient['stepComplete']>>));
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+      stepComplete,
+      journalRead: vi.fn(async () => ({ entries: [] })),
+      supportsFeature: vi.fn(() => true),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_lazy_authority', pins: {}, dataDir,
+    });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+
+    await worker.attach();
+    expect(owner.get).not.toHaveBeenCalled();
+    client.emit('step.dispatch', dispatch('edit-lazy-authority', 'dispatch_lazyauthority'));
+    await worker.close();
+
+    expect(errors).toEqual([]);
+    expect(owner.get).toHaveBeenCalledOnce();
+    expect(stepComplete).toHaveBeenCalledOnce();
+    expect(release.mock.calls.map(call => call[0].receipt.agentId)).toContain('agent_matching_old');
+    expect(release.mock.calls.map(call => call[0].receipt.agentId)).not.toContain('agent_foreign_old');
+    const claims = await readNodeSpawnClaims(dataDir);
+    expect(claims.find(entry => entry.claim.publisherId === 'publisher_1'
+      && entry.claim.cleanup?.agentId === 'agent_matching_old')?.claim.release).toBeDefined();
+    expect(claims.find(entry => entry.claim.publisherId === 'publisher_foreign')?.claim.release)
+      .toBeUndefined();
+  });
+
   it('validates an explicit Desktop caller before registering the worker', async () => {
     const callerFailure = new Error('Desktop caller is expired');
     owner.get.mockRejectedValue(callerFailure);
@@ -301,6 +412,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     }, { runtime });
     await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
     owner.get.mockResolvedValue(runtime);
+    owner.peek.mockReturnValue(runtime);
     const client = Object.assign(new EventEmitter(), {
       workerAttach: vi.fn(async () => ({})),
       journalRead: vi.fn(async () => ({ entries: [{
@@ -678,5 +790,34 @@ function dispatch(stepId: string, idempotencyKey: string, leaseTtlMs?: number): 
     lease_deadline_ms: Date.now() + (leaseTtlMs ?? 30_000),
     ...(leaseTtlMs === undefined ? {} : { lease_ttl_ms: leaseTtlMs }),
     pins: {},
+  };
+}
+
+function pendingCleanupClaim(
+  publisherId: string,
+  publisherName: string,
+  idempotencyKey: string,
+  agentId: string,
+): NodeSpawnClaim {
+  return {
+    version: 3,
+    baseUrl: 'https://cast.agentrelay.com',
+    publisherId,
+    publisherName,
+    runId: 'run_parallel',
+    stepId: `step_${agentId}`,
+    idempotencyKey,
+    agentName: `relayflow-${agentId}`,
+    timeoutMs: 30_000,
+    request: { cli: 'codex', task: 'Recover the prior task', task_identity: `identity_${agentId}` },
+    startedAt: Date.now(),
+    cleanup: {
+      id: `spawn_${agentId}`,
+      nodeId: 'node_1',
+      nodeName: 'desktop-1',
+      name: `relayflow-${agentId}`,
+      agentId,
+    },
+    failure: { code: 'result_timeout', message: 'worker crashed before cleanup' },
   };
 }

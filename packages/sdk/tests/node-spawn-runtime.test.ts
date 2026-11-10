@@ -68,6 +68,7 @@ describe('remote node-spawn runtime', () => {
       disconnect } satisfies NodeSpawnRuntime;
     const factory = vi.fn((_signal: AbortSignal) => new Promise<NodeSpawnRuntime>(done => { resolve = done; }));
     const owner = createNodeSpawnRuntimeOwner(undefined, factory);
+    expect(owner.peek()).toBeUndefined();
     const cancelled = new AbortController();
     const first = owner.get(cancelled.signal);
     const second = owner.get();
@@ -77,6 +78,7 @@ describe('remote node-spawn runtime', () => {
     expect(factory.mock.calls[0]![0].aborted).toBe(false);
     resolve(runtime);
     await expect(second).resolves.toBe(runtime);
+    expect(owner.peek()).toBe(runtime);
     await expect(owner.get()).resolves.toBe(runtime);
     expect(disconnect).not.toHaveBeenCalled();
     await expect(owner.close()).resolves.toBeUndefined();
