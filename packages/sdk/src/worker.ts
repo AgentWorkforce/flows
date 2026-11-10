@@ -375,7 +375,17 @@ export class AgentWorker extends EventEmitter {
       || (entry.claim.result?.settlement !== undefined
         && entry.claim.result.settlement.settledAt === undefined));
     if (!hasPending) return;
-    const runtime = await this.nodeSpawnRuntimeOwner.get();
+    let runtime: NodeSpawnRuntime;
+    try {
+      runtime = await this.nodeSpawnRuntimeOwner.get();
+    } catch (error) {
+      this.scheduleSettlementReconcile();
+      // A lazy remote worker cannot identify a pending claim's owner until its
+      // runtime binds. A foreign claim or absent remote authority must not stop
+      // an otherwise direct-only worker from attaching.
+      if (!this.attached && !this.localDesktopAuthority) return;
+      throw error;
+    }
     let pending: number;
     try {
       pending = await reconcileNodeResultSettlements(this.options.dataDir, runtime, this.client);

@@ -323,6 +323,75 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     expect(owner.close).toHaveBeenCalledOnce();
   });
 
+  it('does not let an unowned pending settlement block lazy remote worker attach', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'flows-lazy-foreign-settlement-'));
+    roots.push(dataDir);
+    let spawnedName = '';
+    const ack = vi.fn(async () => ({}));
+    const priorRuntime: NodeSpawnRuntime = {
+      publisher: { id: 'publisher_prior', name: 'prior-publisher' },
+      baseUrl: 'https://prior.agentrelay.test',
+      port: {
+        dispatchFenceVersion: 1,
+        targets: async () => [],
+        spawn: async (input, beforeDispatch) => {
+          await beforeDispatch();
+          spawnedName = input.name;
+          return { id: 'spawn_prior', action: 'spawn', status: 'completed',
+            nodeId: 'node_prior', nodeName: 'prior-node', name: input.name, agentId: 'agent_prior',
+            spawned: true, ready: true };
+        },
+        status: vi.fn(),
+        release: async () => ({ id: 'release_prior', action: 'release', status: 'completed',
+          spawned: false, ready: false, released: true }),
+      },
+      inbox: { inbox: {
+        subscribe: async function* () {
+          yield { id: 'delivery_prior', message: { id: 'message_prior',
+            from: { id: 'agent_prior', name: spawnedName },
+            text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_prior',
+              step_id: 'edit', dispatch_id: 'dispatch_prior123', status: 'completed',
+              output: { summary: 'done' } }) } };
+        },
+        ack,
+        fail: vi.fn(async () => ({})),
+      } },
+    };
+    const received = await runAgentRelayTask({
+      cli: 'codex', task: 'Implement the change', runId: 'run_prior', stepId: 'edit',
+      idempotencyKey: 'dispatch_prior123', attempt: 1, dataDir,
+    }, { runtime: priorRuntime });
+    await received.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+
+    vi.useFakeTimers();
+    try {
+      owner.get.mockRejectedValue(new Error('remote publisher is not configured'));
+      const workerAttach = vi.fn(async () => ({}));
+      const client = Object.assign(new EventEmitter(), { workerAttach });
+      const worker = new AgentWorker(client as unknown as JournalClient, {
+        workerId: 'worker_without_relay_authority', pins: {}, dataDir,
+      });
+
+      await expect(worker.attach()).resolves.toBeUndefined();
+      expect(workerAttach).toHaveBeenCalledOnce();
+      expect(owner.get).toHaveBeenCalledOnce();
+      expect(ack).not.toHaveBeenCalled();
+      const state = worker as unknown as { settlementTimer?: NodeJS.Timeout };
+      expect(state.settlementTimer).toBeDefined();
+
+      owner.get.mockResolvedValue({
+        ...priorRuntime,
+        publisher: { id: 'publisher_other', name: 'other-publisher' },
+        baseUrl: 'https://other.agentrelay.test',
+      });
+      await expect(worker.close()).resolves.toBeUndefined();
+      expect(ack).not.toHaveBeenCalled();
+      expect(state.settlementTimer).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shares one runtime and one concurrent close promise through dispatch drain', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-shared-node-runtime-'));
     roots.push(dataDir);
