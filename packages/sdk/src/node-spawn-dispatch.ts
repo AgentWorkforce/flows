@@ -15,6 +15,7 @@ interface FencedNodeSpawnOptions {
 }
 
 interface RetryablePreflightIdentity {
+  prototype: object;
   spawn: NodeSpawnPort['spawn'];
   targets: NodeSpawnPort['targets'];
 }
@@ -30,14 +31,24 @@ export function registerRetryablePreflightPort(
   port: NodeSpawnPort,
   identity: RetryablePreflightIdentity,
 ): void {
-  if (port.spawn === identity.spawn && port.targets === identity.targets) {
-    retryablePreflightPorts.set(port, identity);
-  }
+  if (hasExactPreflightMethods(port, identity)) retryablePreflightPorts.set(port, identity);
 }
 
 function hasRetryablePreflight(port: NodeSpawnPort): boolean {
   const identity = retryablePreflightPorts.get(port);
-  return identity?.spawn === port.spawn && identity.targets === port.targets;
+  return identity !== undefined && hasExactPreflightMethods(port, identity);
+}
+
+function hasExactPreflightMethods(
+  port: NodeSpawnPort,
+  identity: RetryablePreflightIdentity,
+): boolean {
+  if (Object.getPrototypeOf(port) !== identity.prototype
+    || Object.getOwnPropertyDescriptor(port, 'spawn') !== undefined
+    || Object.getOwnPropertyDescriptor(port, 'targets') !== undefined) return false;
+  const spawn = Object.getOwnPropertyDescriptor(identity.prototype, 'spawn');
+  const targets = Object.getOwnPropertyDescriptor(identity.prototype, 'targets');
+  return spawn?.value === identity.spawn && targets?.value === identity.targets;
 }
 
 /** Enters exactly one irreversible spawn behind a durable, one-way fence. */
@@ -49,9 +60,9 @@ export async function dispatchFencedNodeSpawn(
   let dispatchHookEntered = false;
   let pendingSpawn: Promise<NodeSpawnReceipt>;
   if (!retryablePreflight) {
-    // Arbitrary public ports cannot prove that their own preflight is free of
-    // side effects. Publish before entering any user code, so a process crash
-    // can never leave a provider-contacted claim looking retryable.
+    // Arbitrary public ports cannot prove that their own spawn preflight is
+    // free of side effects. Publish before resolving or entering spawn, so a
+    // process crash cannot leave a provider-contacted claim looking retryable.
     options.signal?.throwIfAborted();
     await claimNodeSpawnDispatch(options.claimPath, options.claim);
     dispatchPublished = true;

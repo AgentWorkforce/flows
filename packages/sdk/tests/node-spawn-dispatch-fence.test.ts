@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -6,8 +7,8 @@ import { runAgentRelayTask, type AgentRelayTaskRequest } from '../src/agent-rela
 import { LocalNodeSpawnPort, type CoreBridgeClient } from '../src/node-spawn-local.js';
 import { NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
 import type { NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
-import { claimNodeSpawnDispatch, nodeSpawnDispatchFencePath, readNodeSpawnClaims,
-  recordNodeSpawn } from '../src/node-spawn-state.js';
+import { claimNodeSpawnDispatch, nodeSpawnClaimPath, nodeSpawnDispatchFencePath,
+  readNodeSpawnClaims, recordNodeSpawn } from '../src/node-spawn-state.js';
 import { NodeSpawnError, NodeSpawnPreDispatchError,
   type NodeSpawnPort, type NodeSpawnReceipt } from '../src/index.js';
 
@@ -385,6 +386,46 @@ describe('durable node-spawn dispatch fence', () => {
     await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
       .resolves.toMatchObject({ receipt: { status: 'completed' } });
     expect(fenceAtEntry).toBe(true);
+  });
+
+  it('does not read a custom spawn accessor before publishing the fence', async () => {
+    const dataDir = await dataDirectory('flows-dispatch-fence-custom-accessor-');
+    const worker = runtime(async input => readyReceipt(input.name));
+    const spawn = worker.port.spawn;
+    const observations: boolean[] = [];
+    const claimPath = await nodeSpawnClaimPath(
+      dataDir, 'run_fence', 'edit', 'dispatch_fence123');
+    Object.defineProperty(worker.port, 'spawn', {
+      configurable: true,
+      get() {
+        observations.push(existsSync(nodeSpawnDispatchFencePath(claimPath)));
+        return spawn;
+      },
+    });
+
+    await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
+      .resolves.toMatchObject({ receipt: { status: 'completed' } });
+    expect(observations).toEqual([true]);
+  });
+
+  it('does not read a registered local spawn accessor before publishing the fence', async () => {
+    const dataDir = await dataDirectory('flows-dispatch-fence-local-accessor-');
+    const worker = officialLocalRuntime({ eligible: () => true, invoked() {} });
+    const spawn = worker.port.spawn;
+    const observations: boolean[] = [];
+    const claimPath = await nodeSpawnClaimPath(
+      dataDir, 'run_fence', 'edit', 'dispatch_fence123');
+    Object.defineProperty(worker.port, 'spawn', {
+      configurable: true,
+      get() {
+        observations.push(existsSync(nodeSpawnDispatchFencePath(claimPath)));
+        return spawn;
+      },
+    });
+
+    await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
+      .resolves.toMatchObject({ receipt: { status: 'completed' } });
+    expect(observations).toEqual([true]);
   });
 
   it('treats an overridden built-in target preflight as arbitrary code', async () => {

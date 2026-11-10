@@ -400,6 +400,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
 }
 
 const LOCAL_NODE_SPAWN_IDENTITY = Object.freeze({
+  prototype: LocalNodeSpawnPort.prototype,
   spawn: LocalNodeSpawnPort.prototype.spawn,
   targets: LocalNodeSpawnPort.prototype.targets,
 });
