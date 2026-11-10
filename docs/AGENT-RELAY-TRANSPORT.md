@@ -79,10 +79,10 @@ The SDK contains a local `NodeSpawnPort` adapter for Desktop's schema-v2
 service-caller bridge. The caller is an explicit private `caller.json` path
 supplied with `--service-caller-file`, the SDK `serviceCallerFile` option, or
 `RELAYFLOW_SERVICE_CALLER_FILE`; Flows never scans Desktop's app-data
-directory. Optional `@agent-relay/core-bridge` validates the handoff and local
-socket or named pipe, challenge-authenticates a fresh connection, verifies the
-bound publisher/workspace/node identity, and then calls `spawn.targets`,
-`spawn.invoke`, `spawn.status`, and `spawn.release` without sending a caller
+directory. Optional `@agent-relay/core-bridge` `>=18.1.0 <19` validates the
+handoff and local socket or named pipe, challenge-authenticates a fresh
+connection, verifies the bound publisher/workspace/node identity, and then
+calls `spawn.targets`, `spawn.invoke`, `spawn.status`, and `spawn.release` without sending a caller
 name or secret. The same authenticated bridge provides the invocation-scoped
 result inbox and its ack/fail/close/disconnect lifecycle.
 

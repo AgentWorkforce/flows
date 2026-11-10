@@ -17,6 +17,8 @@ it('removes harness-driver from the published dependency contract', async () => 
   expect(JSON.stringify({ dependencies: manifest.dependencies, peerDependencies: manifest.peerDependencies,
     optionalDependencies: manifest.optionalDependencies })).not.toContain('@agent-relay/harness-driver');
   expect(manifest.peerDependencies['@agent-relay/sdk']).toBe('>=17.2.1 <19');
+  expect(manifest.peerDependencies['@agent-relay/core-bridge']).toBe('>=18.1.0 <19');
+  expect(manifest.peerDependenciesMeta['@agent-relay/core-bridge']).toEqual({ optional: true });
 });
 
 it('fails legacy retained sessions before creating a journal child run', async () => {

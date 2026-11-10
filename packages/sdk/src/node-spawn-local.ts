@@ -151,18 +151,57 @@ export interface CoreBridgeApi {
   serviceCallerDisconnect(client: CoreBridgeClient, options?: { signal?: AbortSignal }): Promise<unknown>;
 }
 
+const REQUIRED_CORE_BRIDGE_METHODS = {
+  connectCore: true,
+  readCallerDescriptor: true,
+  authenticate: true,
+  requireServiceCallerMethods: true,
+  assertServiceCallerIdentity: true,
+  serviceCallerIdentity: true,
+  spawnTargets: true,
+  spawnInvoke: true,
+  spawnStatus: true,
+  spawnRelease: true,
+  serviceCallerInboxOpen: true,
+  serviceCallerInboxNext: true,
+  serviceCallerInboxAck: true,
+  serviceCallerInboxFail: true,
+  serviceCallerInboxClose: true,
+  serviceCallerDisconnect: true,
+} as const satisfies Record<keyof CoreBridgeApi, true>;
+
+/** Fails before local admission when an installed optional bridge lacks the required contract. */
+export function assertCoreBridgeApi(value: unknown): asserts value is CoreBridgeApi {
+  const module = (typeof value === 'object' && value !== null)
+    ? value as Record<string, unknown>
+    : {};
+  const missingMethods = Object.keys(REQUIRED_CORE_BRIDGE_METHODS)
+    .filter(method => typeof module[method] !== 'function');
+  if (missingMethods.length === 0) return;
+  throw new NodeSpawnError(
+    `Installed @agent-relay/core-bridge is missing required schema-v2 methods: ${missingMethods.join(', ')}. `
+      + 'Install >=18.1.0 <19.',
+    'core_bridge_unavailable',
+    { missingMethods, requiredVersion: '>=18.1.0 <19' },
+  );
+}
+
 /** Loads the optional bridge without making remote-only installs depend on Desktop support. */
 export async function loadCoreBridge(): Promise<CoreBridgeApi> {
   const specifier = '@agent-relay/core-bridge';
+  let bridge: unknown;
   try {
-    return await import(specifier) as unknown as CoreBridgeApi;
+    bridge = await import(specifier);
   } catch (error) {
     throw new NodeSpawnError(
-      'Local Desktop node spawn requires optional @agent-relay/core-bridge with schema-v2 service-caller support',
+      'Local Desktop node spawn requires optional @agent-relay/core-bridge >=18.1.0 <19 '
+        + 'with schema-v2 service-caller support',
       'core_bridge_unavailable',
       error,
     );
   }
+  assertCoreBridgeApi(bridge);
+  return bridge;
 }
 
 /** Native local spawn adapter over one already authenticated schema-v2 bridge connection. */

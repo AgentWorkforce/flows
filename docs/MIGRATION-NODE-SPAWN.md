@@ -32,9 +32,10 @@ private file explicitly with
 `--local-agent --service-caller-file /absolute/caller.json`,
 the SDK `serviceCallerFile` option, or `RELAYFLOW_SERVICE_CALLER_FILE`. Flows
 never scans Desktop's app-data directory. It securely parses and
-challenge-authenticates the handoff through `@agent-relay/core-bridge` 18.x.
-Install a compatible version (`npm install @agent-relay/core-bridge@^18`) when
-using Desktop mode; the peer is optional only when Desktop mode is not used.
+challenge-authenticates the handoff through `@agent-relay/core-bridge` 18.1 or
+newer. Install a compatible version
+(`npm install @agent-relay/core-bridge@^18.1.0`) when using Desktop mode; the
+peer is optional only when Desktop mode is not used.
 Flows then sends no caller name or secret
 on spawn or inbox calls. The handoff's harness and directory scope is enforced
 before dispatch. A local relay step with no authored `cwd` spawns in that run's
