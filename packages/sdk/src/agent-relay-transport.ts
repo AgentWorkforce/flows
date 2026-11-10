@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
-import { claimNodeSpawnAtPath, nodeSpawnClaimPath, recordNodeSpawn,
+import { claimNodeSpawnAtPath, hasNodeSpawnDispatchFence,
+  nodeSpawnClaimPath, recordNodeSpawn,
   type NodeSpawnClaim } from './node-spawn-state.js';
+import { dispatchFencedNodeSpawn } from './node-spawn-dispatch.js';
 import { nodeResultInstruction, waitForNodeResult } from './node-spawn-result.js';
 import { durableNodeResultDelivery } from './node-spawn-settlement.js';
-import { waitForNodeOperation, waitForNodeSpawn } from './node-spawn-deadline.js';
+import { waitForNodeOperation } from './node-spawn-deadline.js';
 import { createNodeSpawnRuntime, type NodeSpawnRuntime } from './node-spawn-runtime.js';
 import { NodeSpawnError, nonempty, validIdempotencyKey,
   validNodeSpawnIdentity, validNodeSpawnReceipt,
@@ -182,6 +184,8 @@ async function executeAgentRelayTask(
   taskStartedAt: number,
   timeoutMs: number,
 ): Promise<RelayTaskResult> {
+  if (runtime.port.dispatchFenceVersion !== 1) throw new AgentRelayTransportError(
+    'The node-spawn port does not implement durable dispatch-fence protocol version 1');
   const correlation = { runId: request.runId, stepId: request.stepId, dispatchId: request.idempotencyKey };
   const agentName = stableAgentName(request);
   const task = [
@@ -191,7 +195,7 @@ async function executeAgentRelayTask(
     nodeResultInstruction(correlation),
   ].filter(nonempty).join('\n\n');
   const proposed: NodeSpawnClaim = {
-    version: 2,
+    version: 3,
     baseUrl: runtime.baseUrl,
     publisherId: runtime.publisher.id,
     publisherName: runtime.publisher.name,
@@ -216,11 +220,14 @@ async function executeAgentRelayTask(
   let releaseAttempted = false;
   const deadline = claim.startedAt + claim.timeoutMs;
   try {
-    if (!claimed.created && claim.spawn === undefined) {
-      if (claim.cleanup === undefined) {
-        throw new AgentRelayTransportError(
-          'A prior node-spawn dispatch ended in the ambiguous pre-ack window; refusing a second spawn');
-      }
+    const dispatchFenced = claim.version === 3 && await hasNodeSpawnDispatchFence(claimed.path, claim);
+    if (claim.spawn === undefined && claim.cleanup === undefined
+      && (dispatchFenced || (!claimed.created && claim.version === 2))) {
+      throw new AgentRelayTransportError('A prior node-spawn dispatch ended in the ambiguous pre-ack window; refusing a second spawn');
+    }
+    // A v3 claim without a dispatch fence proves no irreversible call was
+    // entered, so a replacement attempt may safely repeat preflight.
+    if (!claimed.created && claim.spawn === undefined && claim.cleanup !== undefined) {
       if (claim.release === undefined) {
         releaseAttempted = true;
         const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
@@ -237,29 +244,22 @@ async function executeAgentRelayTask(
       // setup and durable claiming can take time or lose the worker lease.
       signal?.throwIfAborted();
       const remaining = remainingDeadline(deadline);
-      const pendingSpawn = runtime.port.spawn({
-        name: agentName,
-        harness: request.cli,
-        task,
-        ...(request.model === undefined ? {} : { model: request.model }),
-        ...(request.worker_cwd === undefined ? {} : { directory: request.worker_cwd }),
-        idempotencyKey: request.idempotencyKey,
-        ...(runtime.node === undefined ? {} : { node: runtime.node }),
-        ...(runtime.repo === undefined ? {} : { repo: runtime.repo }),
-        ...(runtime.sandboxOnly === undefined ? {} : { sandboxOnly: runtime.sandboxOnly }),
-        timeoutMs: remaining,
+      const spawn = await dispatchFencedNodeSpawn({
+        port: runtime.port,
+        request: {
+          name: agentName,
+          harness: request.cli,
+          task,
+          ...(request.model === undefined ? {} : { model: request.model }),
+          ...(request.worker_cwd === undefined ? {} : { directory: request.worker_cwd }),
+          idempotencyKey: request.idempotencyKey,
+          ...(runtime.node === undefined ? {} : { node: runtime.node }),
+          ...(runtime.repo === undefined ? {} : { repo: runtime.repo }),
+          ...(runtime.sandboxOnly === undefined ? {} : { sandboxOnly: runtime.sandboxOnly }),
+          timeoutMs: remaining,
+        },
+        claimPath: claimed.path, claim, signal, settleLate: settleLateSpawn,
       });
-      const spawnTimeout = AbortSignal.timeout(remaining);
-      const spawnSignal = signal === undefined
-        ? spawnTimeout : AbortSignal.any([signal, spawnTimeout]);
-      const spawn = await waitForNodeSpawn(pendingSpawn, spawnSignal, outcome => {
-        void settleLateSpawn(outcome).catch(() => undefined);
-      });
-      if (!validNodeSpawnReceipt(spawn) || spawn.name !== agentName) {
-        throw new NodeSpawnError('The node spawn did not return a valid ready identity',
-          'spawn_identity_mismatch', undefined,
-          validNodeSpawnIdentity(spawn) ? spawn : undefined);
-      }
       claim = { ...claim, spawn };
       await recordNodeSpawn(claimed.path, claim);
       signal?.throwIfAborted();

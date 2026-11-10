@@ -2,6 +2,7 @@ import { isAbsolute, relative, sep } from 'node:path';
 
 import {
   NodeSpawnError,
+  NodeSpawnPreDispatchError,
   normalizeNodeSpawnStatus,
   terminalStatus,
   type NodeReleaseRequest,
@@ -13,6 +14,7 @@ import {
   type NodeSpawnRequest,
   type NodeSpawnTarget,
   validIdempotencyKey,
+  type BeforeNodeDispatch,
 } from './node-spawn.js';
 
 /** The structural core-bridge surface Flows consumes. Kept here so the package stays optional. */
@@ -206,6 +208,8 @@ export async function loadCoreBridge(): Promise<CoreBridgeApi> {
 
 /** Native local spawn adapter over one already authenticated schema-v2 bridge connection. */
 export class LocalNodeSpawnPort implements NodeSpawnPort {
+  readonly dispatchFenceVersion = 1 as const;
+
   constructor(
     private readonly core: CoreBridgeClient,
     private readonly bridge: Pick<CoreBridgeApi, 'spawnTargets' | 'spawnInvoke' | 'spawnStatus' | 'spawnRelease'>,
@@ -239,36 +243,45 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     });
   }
 
-  async spawn(request: NodeSpawnRequest): Promise<NodeSpawnReceipt> {
-    if (!request.directory || !isAbsolute(request.directory)) {
-      throw new NodeSpawnError('Local node spawn requires an absolute directory', 'spawn_invalid_input');
+  async spawn(request: NodeSpawnRequest, beforeDispatch: BeforeNodeDispatch): Promise<NodeSpawnReceipt> {
+    let allTargets: NodeSpawnTarget[];
+    let target: NodeSpawnTarget | undefined;
+    try {
+      if (!request.directory || !isAbsolute(request.directory)) {
+        throw new NodeSpawnError('Local node spawn requires an absolute directory', 'spawn_invalid_input');
+      }
+      if (!this.scope.harnesses.includes(request.harness)
+        || !this.scope.directoryScope.some(root => withinDirectory(root, request.directory!))) {
+        throw new NodeSpawnError(
+          'The Desktop service caller does not authorize this harness and directory',
+          'outside_scope',
+        );
+      }
+      if (!validIdempotencyKey(request.idempotencyKey)) {
+        throw new NodeSpawnError('Invalid node-spawn idempotency key', 'spawn_invalid_input');
+      }
+      if (request.model !== undefined || request.repo !== undefined || request.sandboxOnly !== undefined) {
+        throw new NodeSpawnError(
+          'The Desktop core bridge does not accept model, repository, or sandbox placement overrides',
+          'spawn_invalid_input',
+        );
+      }
+      allTargets = await this.targets();
+      if (request.node !== undefined && request.node !== this.exactNode.name) {
+        throw new NodeSpawnError('The requested node differs from the authenticated Desktop node',
+          'spawn_identity_mismatch');
+      }
+      target = allTargets.find(candidate => candidate.id === this.exactNode.id
+        && candidate.name === this.exactNode.name
+        && candidate.live && candidate.handlersLive && !candidate.stale
+        && candidate.capabilities.includes(`spawn:${request.harness}`));
+      if (!target?.id) {
+        throw new NodeSpawnError('No eligible local Agent Relay spawn target', 'no_eligible_node');
+      }
+    } catch (error) {
+      throw new NodeSpawnPreDispatchError(error);
     }
-    if (!this.scope.harnesses.includes(request.harness)
-      || !this.scope.directoryScope.some(root => withinDirectory(root, request.directory!))) {
-      throw new NodeSpawnError(
-        'The Desktop service caller does not authorize this harness and directory',
-        'outside_scope',
-      );
-    }
-    if (!validIdempotencyKey(request.idempotencyKey)) {
-      throw new NodeSpawnError('Invalid node-spawn idempotency key', 'spawn_invalid_input');
-    }
-    if (request.model !== undefined || request.repo !== undefined || request.sandboxOnly !== undefined) {
-      throw new NodeSpawnError(
-        'The Desktop core bridge does not accept model, repository, or sandbox placement overrides',
-        'spawn_invalid_input',
-      );
-    }
-    const allTargets = await this.targets();
-    if (request.node !== undefined && request.node !== this.exactNode.name) {
-      throw new NodeSpawnError('The requested node differs from the authenticated Desktop node',
-        'spawn_identity_mismatch');
-    }
-    const target = allTargets.find(candidate => candidate.id === this.exactNode.id
-      && candidate.name === this.exactNode.name
-      && candidate.live && candidate.handlersLive && !candidate.stale
-      && candidate.capabilities.includes(`spawn:${request.harness}`));
-    if (!target?.id) throw new NodeSpawnError('No eligible local Agent Relay spawn target', 'no_eligible_node');
+    await beforeDispatch();
     const raw = await this.bridge.spawnInvoke(this.core, {
       node_id: target.id,
       node_name: target.name,

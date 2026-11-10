@@ -1,11 +1,13 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   NodeSpawnError,
+  NodeSpawnPreDispatchError,
   isRecord,
   normalizeNodeSpawnStatus,
   nonempty,
   terminalStatus,
   validIdempotencyKey,
+  type BeforeNodeDispatch,
   type NodeReleaseRequest,
   type NodeSpawnAction,
   type NodeSpawnIdentity,
@@ -48,6 +50,8 @@ export interface RemoteNodeSpawnClient {
 
 /** Fleet node-spawn adapter backed only by the supported Agent Relay SDK. */
 export class RemoteNodeSpawnPort implements NodeSpawnPort {
+  readonly dispatchFenceVersion = 1 as const;
+
   constructor(private readonly client: RemoteNodeSpawnClient) {}
 
   async targets(): Promise<NodeSpawnTarget[]> {
@@ -62,13 +66,15 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
     }));
   }
 
-  async spawn(request: NodeSpawnRequest): Promise<NodeSpawnReceipt> {
+  async spawn(request: NodeSpawnRequest, beforeDispatch: BeforeNodeDispatch): Promise<NodeSpawnReceipt> {
     if (!validIdempotencyKey(request.idempotencyKey)) {
-      throw new NodeSpawnError('Invalid node-spawn idempotency key', 'spawn_invalid_input');
+      throw new NodeSpawnPreDispatchError(
+        new NodeSpawnError('Invalid node-spawn idempotency key', 'spawn_invalid_input'));
     }
     const capability = `spawn:${request.harness}`;
     let ack: PlacementAck;
     try {
+      await beforeDispatch();
       ack = await this.client.placement.spawn({
         capability,
         ...(request.node === undefined ? {} : { node: request.node }),

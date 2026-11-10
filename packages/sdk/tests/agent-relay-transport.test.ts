@@ -33,14 +33,17 @@ function fixture(result: 'completed' | 'failed' = 'completed'): { runtime: NodeS
     id: 'inv_spawn_1', action: 'spawn', status: 'completed', nodeId: 'node_1', nodeName: 'desktop-1',
     name: 'placeholder', agentId: 'agent_1', spawned: true, ready: true,
   };
-  const spawn = vi.fn(async (input: { name: string }) => ({ ...receipt, name: input.name }));
+  const spawn = vi.fn<NodeSpawnPort['spawn']>(async (input, beforeDispatch) => {
+    await beforeDispatch();
+    return { ...receipt, name: input.name };
+  });
   const release = vi.fn(async () => ({ id: 'inv_release_1', action: 'release' as const,
     status: 'completed' as const, spawned: false, ready: false, released: true }));
   const status = vi.fn(async () => ({ ...receipt, name: receipt.name }));
   const ack = vi.fn(async () => ({}));
   const fail = vi.fn(async () => ({}));
   const port: NodeSpawnPort = {
-    targets: async () => [], spawn, status, release,
+    dispatchFenceVersion: 1, targets: async () => [], spawn, status, release,
   };
   const runtime: NodeSpawnRuntime = {
     port,
@@ -176,7 +179,10 @@ describe('native node-spawn task transport', () => {
   it('fails closed across an ambiguous pre-ack crash instead of spawning twice', async () => {
     const dataDir = await dataDirectory('flows-node-ambiguous-');
     const f = fixture();
-    f.spawn.mockRejectedValueOnce(new Error('connection dropped'));
+    f.spawn.mockImplementationOnce(async (_input, beforeDispatch) => {
+      await beforeDispatch();
+      throw new Error('connection dropped');
+    });
     await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime })).rejects.toThrow('connection dropped');
     await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime })).rejects.toThrow('ambiguous pre-ack');
     expect(f.spawn).toHaveBeenCalledTimes(1);
@@ -185,11 +191,14 @@ describe('native node-spawn task transport', () => {
   it('durably releases exact identity attached to a post-spawn verification failure', async () => {
     const dataDir = await dataDirectory('flows-node-postspawn-failure-');
     const f = fixture();
-    f.spawn.mockRejectedValueOnce(new NodeSpawnError('task delivery unconfirmed',
-      'spawn_task_unconfirmed', undefined, {
+    f.spawn.mockImplementationOnce(async (_input, beforeDispatch) => {
+      await beforeDispatch();
+      throw new NodeSpawnError('task delivery unconfirmed',
+        'spawn_task_unconfirmed', undefined, {
         id: 'inv_spawn_1', nodeId: 'node_1', nodeName: 'desktop-1',
         name: 'worker_1', agentId: 'agent_1',
-      }));
+        });
+    });
     await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
       .rejects.toThrow('task delivery unconfirmed');
     expect(f.release).toHaveBeenCalledWith(expect.objectContaining({
@@ -205,7 +214,8 @@ describe('native node-spawn task transport', () => {
     const dataDir = await dataDirectory('flows-node-cancel-');
     const f = fixture();
     const controller = new AbortController();
-    f.spawn.mockImplementationOnce(async (input: { name: string }) => {
+    f.spawn.mockImplementationOnce(async (input, beforeDispatch) => {
+      await beforeDispatch();
       queueMicrotask(() => controller.abort(new Error('lease lost')));
       return { id: 'inv_spawn_1', action: 'spawn' as const, status: 'completed' as const,
         nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_1',
@@ -240,7 +250,8 @@ describe('native node-spawn task transport', () => {
     const dataDir = await dataDirectory('flows-node-deadline-identity-');
     const f = fixture();
     const controller = new AbortController();
-    f.spawn.mockImplementationOnce(async (input: { name: string }) => {
+    f.spawn.mockImplementationOnce(async (input, beforeDispatch) => {
+      await beforeDispatch();
       queueMicrotask(() => controller.abort(new Error('worker stopped')));
       return { id: 'inv_spawn_1', action: 'spawn' as const, status: 'completed' as const,
         nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_1',
@@ -284,9 +295,12 @@ describe('native node-spawn task transport', () => {
     const f = fixture();
     const controller = new AbortController();
     let confirm!: (receipt: NodeSpawnReceipt) => void;
-    f.spawn.mockImplementationOnce((input: { name: string }) => new Promise<NodeSpawnReceipt>(resolve => {
+    f.spawn.mockImplementationOnce(async (input, beforeDispatch) => {
+      await beforeDispatch();
+      return new Promise<NodeSpawnReceipt>(resolve => {
       confirm = receipt => resolve({ ...receipt, name: input.name });
-    }));
+      });
+    });
     const pending = runAgentRelayTask(request(dataDir), { runtime: f.runtime, signal: controller.signal });
     await vi.waitFor(() => expect(f.spawn).toHaveBeenCalledOnce());
     controller.abort(new Error('lease lost during confirmation'));

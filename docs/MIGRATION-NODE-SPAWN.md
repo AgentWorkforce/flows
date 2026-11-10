@@ -47,6 +47,19 @@ Setting both fails closed. A caller file whose publisher or workspace differs
 from the authenticated core identity is also refused; rotate or reprovision it
 in Desktop rather than editing the file.
 
+## Custom `NodeSpawnPort` implementations
+
+Ports must now declare `dispatchFenceVersion: 1` and await the supplied
+`beforeDispatch` callback immediately before the first irreversible spawn
+call. Preflight that fails before that callback may throw the public
+`NodeSpawnPreDispatchError` to preserve safe retry; using that marker after an
+effect may have started is a protocol violation. Existing one-argument
+`spawn` methods must be migrated even though JavaScript permits them to ignore
+the callback. The required version field makes an unchanged port a type error,
+and runtime use fails before claim creation. A port that falsely declares the
+version but omits the callback is fenced and refused after its first uncertain
+call.
+
 ## Hosted and self-hosted execution
 
 Hosted workers use the agent-token fleet path. Self-hosted workers use the

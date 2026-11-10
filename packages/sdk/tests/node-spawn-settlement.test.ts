@@ -45,13 +45,16 @@ function fixture(): { runtime: NodeSpawnRuntime; spawn: ReturnType<typeof vi.fn>
     id: 'inv_spawn_1', action: 'spawn', status: 'completed', nodeId: 'node_1', nodeName: 'desktop-1',
     name: 'placeholder', agentId: 'agent_1', spawned: true, ready: true,
   };
-  const spawn = vi.fn(async (input: { name: string }) => ({ ...receipt, name: input.name }));
+  const spawn = vi.fn<NodeSpawnPort['spawn']>(async (input, beforeDispatch) => {
+    await beforeDispatch();
+    return { ...receipt, name: input.name };
+  });
   const release = vi.fn(async () => ({ id: 'inv_release_1', action: 'release' as const,
     status: 'completed' as const, spawned: false, ready: false, released: true }));
   const ack = vi.fn(async () => ({}));
   const fail = vi.fn(async () => ({}));
   const port: NodeSpawnPort = {
-    targets: async () => [], spawn,
+    dispatchFenceVersion: 1, targets: async () => [], spawn,
     status: vi.fn(async () => ({ ...receipt })),
     release,
   };
@@ -356,10 +359,13 @@ describe('durable node-result settlement', () => {
   it('rejects an invalid resolved spawn receipt before reading the inbox and releases exact identity', async () => {
     const dataDir = await dataDirectory('flows-node-invalid-resolved-spawn-');
     const f = fixture();
-    f.spawn.mockImplementationOnce(async (input: { name: string }) => ({
-      id: 'inv_spawn_1', action: 'spawn', status: 'completed', nodeId: 'node_1', nodeName: 'desktop-1',
-      name: input.name, agentId: 'agent_1', spawned: true, ready: false,
-    }) as never);
+    f.spawn.mockImplementationOnce(async (input, beforeDispatch) => {
+      await beforeDispatch();
+      return {
+        id: 'inv_spawn_1', action: 'spawn', status: 'completed', nodeId: 'node_1', nodeName: 'desktop-1',
+        name: input.name, agentId: 'agent_1', spawned: true, ready: false,
+      } as never;
+    });
     f.runtime.inbox.inbox.subscribe = async function* () { throw new Error('inbox must not be read'); };
     await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
       .rejects.toThrow('valid ready identity');
@@ -369,8 +375,11 @@ describe('durable node-result settlement', () => {
   it('refuses malformed cleanup identity from a custom port without issuing a release', async () => {
     const dataDir = await dataDirectory('flows-node-malformed-cleanup-');
     const f = fixture();
-    f.spawn.mockRejectedValueOnce(new NodeSpawnError('custom port failed',
-      'spawn_unconfirmed', undefined, { id: 'inv_spawn_1' } as never));
+    f.spawn.mockImplementationOnce(async (_input, beforeDispatch) => {
+      await beforeDispatch();
+      throw new NodeSpawnError('custom port failed',
+        'spawn_unconfirmed', undefined, { id: 'inv_spawn_1' } as never);
+    });
     await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
       .rejects.toThrow('custom port failed');
     await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))

@@ -78,9 +78,11 @@ describe('node-spawn transport through the real journal', () => {
       baseUrl: 'https://cast.agentrelay.com',
       publisher: { id: 'publisher_1', name: 'flows-publisher' },
       port: {
+        dispatchFenceVersion: 1,
         targets: async () => [],
-        spawn: async (input) => {
+        spawn: async (input, beforeDispatch) => {
           await runReady;
+          await beforeDispatch();
           dispatchId = input.idempotencyKey;
           const receipt: NodeSpawnReceipt = {
             id: 'spawn_1',

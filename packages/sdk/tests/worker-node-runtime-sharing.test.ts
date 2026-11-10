@@ -97,7 +97,8 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     await mkdir(declaredDirectory);
     const exactDeclaredDirectory = await realpath(declaredDirectory);
     let spawnedName = '';
-    const spawn = vi.fn<NodeSpawnPort['spawn']>(async input => {
+    const spawn = vi.fn<NodeSpawnPort['spawn']>(async (input, beforeDispatch) => {
+      await beforeDispatch();
       spawnedName = input.name;
       return { id: 'spawn_worker_path', action: 'spawn', status: 'completed',
         nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_worker_path',
@@ -107,7 +108,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       publisher: { id: 'publisher_1', name: 'flows-publisher' },
       baseUrl: 'https://cast.agentrelay.com',
       ...(testCase.authority === undefined ? {} : { authority: testCase.authority }),
-      port: { targets: async () => [], spawn, status: vi.fn(),
+      port: { dispatchFenceVersion: 1, targets: async () => [], spawn, status: vi.fn(),
         release: vi.fn(async () => ({ id: 'release_worker_path', action: 'release' as const,
           status: 'completed' as const, spawned: false, ready: false, released: true })) },
       inbox: { inbox: {
@@ -177,8 +178,10 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       authority: 'desktop', publisher: { id: 'publisher_1', name: 'flows-publisher' },
       baseUrl: 'https://cast.agentrelay.com',
       port: {
+        dispatchFenceVersion: 1,
         targets: async () => [],
-        spawn: async input => {
+        spawn: async (input, beforeDispatch) => {
+          await beforeDispatch();
           spawnedName = input.name;
           return { id: 'spawn_live_teardown', action: 'spawn', status: 'completed',
             nodeId: 'node_1', nodeName: 'desktop-1', name: input.name,
@@ -267,8 +270,10 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       publisher: { id: 'publisher_1', name: 'flows-publisher' },
       baseUrl: 'https://cast.agentrelay.com',
       port: {
+        dispatchFenceVersion: 1,
         targets: async () => [],
-        spawn: async input => {
+        spawn: async (input, beforeDispatch) => {
+          await beforeDispatch();
           spawnedName = input.name;
           return { id: 'spawn_1', action: 'spawn', status: 'completed',
             nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_1',
@@ -338,7 +343,8 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       order.push(`ack:${inboxItemId}`);
       return {};
     });
-    const spawn = vi.fn<NodeSpawnPort['spawn']>(async input => {
+    const spawn = vi.fn<NodeSpawnPort['spawn']>(async (input, beforeDispatch) => {
+      await beforeDispatch();
       const agentId = `agent_${spawned.length + 1}`;
       spawned.push({ name: input.name, agentId, key: input.idempotencyKey });
       if (spawned.length === 2) bothSpawned();
@@ -355,6 +361,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       publisher: { id: 'publisher_1', name: 'flows-publisher' },
       baseUrl: 'https://cast.agentrelay.com',
       port: {
+        dispatchFenceVersion: 1,
         targets: async () => [],
         spawn,
         status: vi.fn(),
@@ -457,7 +464,8 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     roots.push(dataDir);
     const pending = dispatch('edit-after-drain', 'dispatch_afterdrain');
     let spawnedName = '';
-    const spawn = vi.fn<NodeSpawnPort['spawn']>(async input => {
+    const spawn = vi.fn<NodeSpawnPort['spawn']>(async (input, beforeDispatch) => {
+      await beforeDispatch();
       spawnedName = input.name;
       return { id: 'spawn_after_drain', action: 'spawn', status: 'completed',
         nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_after_drain',
@@ -467,6 +475,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       publisher: { id: 'publisher_1', name: 'flows-publisher' },
       baseUrl: 'https://cast.agentrelay.com',
       port: {
+        dispatchFenceVersion: 1,
         targets: async () => [],
         spawn,
         status: vi.fn(),
@@ -545,7 +554,8 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       order.push(`ack:${inboxItemId}`);
       return {};
     });
-    const spawn = vi.fn<NodeSpawnPort['spawn']>(async input => {
+    const spawn = vi.fn<NodeSpawnPort['spawn']>(async (input, beforeDispatch) => {
+      await beforeDispatch();
       const agentId = `agent_${spawned.length}`;
       spawned.push({ name: input.name, agentId, key: input.idempotencyKey });
       if (spawned.length === dispatches.length) allSpawned();
@@ -561,7 +571,7 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     const runtime: NodeSpawnRuntime = {
       publisher: { id: 'publisher_1', name: 'flows-publisher' },
       baseUrl: 'https://cast.agentrelay.com',
-      port: { targets: async () => [], spawn, status: vi.fn(), release },
+      port: { dispatchFenceVersion: 1, targets: async () => [], spawn, status: vi.fn(), release },
       inbox: { inbox: {
         subscribe: async function* () {
           await spawnedGate;

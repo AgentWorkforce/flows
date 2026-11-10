@@ -75,6 +75,7 @@
     "tests/broker-retirement.test.ts",
     "tests/agent-relay-hardening.test.ts",
     "tests/node-spawn-core-bridge.test.ts",
+    "tests/node-spawn-dispatch-fence.test.ts",
     "tests/node-spawn-ports.test.ts",
     "tests/node-spawn-runtime.test.ts",
     "tests/node-spawn-settlement.test.ts",

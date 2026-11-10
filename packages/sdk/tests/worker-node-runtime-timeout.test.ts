@@ -37,7 +37,7 @@ function runtime(spawn: NodeSpawnPort['spawn']): NodeSpawnRuntime {
   return {
     authority: 'remote', publisher: { id: 'publisher_1', name: 'flows-publisher' },
     baseUrl: 'https://cast.agentrelay.com',
-    port: { targets: async () => [], spawn, status: vi.fn(), release: vi.fn() },
+    port: { dispatchFenceVersion: 1, targets: async () => [], spawn, status: vi.fn(), release: vi.fn() },
     inbox: { inbox: {
       subscribe: async function* () { return; },
       ack: vi.fn(async () => ({})), fail: vi.fn(async () => ({})),
@@ -74,8 +74,10 @@ describe('AgentWorker relay deadlines', () => {
   it('journals a native node-spawn deadline as timeout rather than worker_error', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-node-worker-timeout-reason-'));
     roots.push(dataDir);
-    const spawn = vi.fn<NodeSpawnPort['spawn']>(
-      () => new Promise<NodeSpawnReceipt>(() => undefined));
+    const spawn = vi.fn<NodeSpawnPort['spawn']>(async (_input, beforeDispatch) => {
+      await beforeDispatch();
+      return new Promise<NodeSpawnReceipt>(() => undefined);
+    });
     const stepComplete = vi.fn<JournalClient['stepComplete']>(async () => (
       {} as Awaited<ReturnType<JournalClient['stepComplete']>>
     ));

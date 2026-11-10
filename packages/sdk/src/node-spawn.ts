@@ -67,10 +67,15 @@ export interface NodeReleaseRequest {
   reason?: string;
 }
 
+/** Publishes the durable write-ahead fact immediately before an irreversible spawn call. */
+export type BeforeNodeDispatch = () => Promise<void>;
+
 /** Credentials and transport stay inside an implementation of this port. */
 export interface NodeSpawnPort {
+  /** Proves this port implements the required durable pre-dispatch callback protocol. */
+  readonly dispatchFenceVersion: 1;
   targets(): Promise<NodeSpawnTarget[]>;
-  spawn(request: NodeSpawnRequest): Promise<NodeSpawnReceipt>;
+  spawn(request: NodeSpawnRequest, beforeDispatch: BeforeNodeDispatch): Promise<NodeSpawnReceipt>;
   status(action: NodeSpawnAction, invocationId: string): Promise<NodeSpawnInvocation>;
   release(request: NodeReleaseRequest): Promise<NodeSpawnInvocation>;
 }
@@ -85,6 +90,18 @@ export class NodeSpawnError extends Error {
   ) {
     super(message);
     this.name = 'NodeSpawnError';
+  }
+}
+
+/** An official port proved that it failed before entering its dispatch hook. */
+export class NodeSpawnPreDispatchError extends NodeSpawnError {
+  constructor(error: unknown) {
+    super(
+      error instanceof Error ? error.message : 'Node-spawn preflight failed',
+      error instanceof NodeSpawnError ? error.code : 'node_spawn_preflight_failed',
+      error,
+    );
+    this.name = 'NodeSpawnPreDispatchError';
   }
 }
 

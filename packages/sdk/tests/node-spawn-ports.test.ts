@@ -11,6 +11,8 @@ interface TestCore {
   call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
 }
 
+const beforeDispatch = async (): Promise<void> => undefined;
+
 function localPort(core: TestCore): LocalNodeSpawnPort {
   const client = {
     hello: { bridge_version: 2, daemon_version: 'test', pid: 1, methods: [], topics: [] },
@@ -31,9 +33,11 @@ function localPort(core: TestCore): LocalNodeSpawnPort {
 describe('local node-spawn port', () => {
   it('uses bound bridge v2 spawn methods with no raw caller credential and exact release identity', async () => {
     const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    const dispatchOrder: string[] = [];
     const core: TestCore = {
       async call<T>(method: string, params?: Record<string, unknown>): Promise<T> {
         calls.push([method, params]);
+        if (method === 'spawn.invoke') dispatchOrder.push('spawn.invoke');
         if (method === 'spawn.targets') return { targets: [{ id: 'node_1', name: 'desktop-1', live: true,
           handlers_live: true, stale: false, capabilities: ['spawn:codex'], active_agents: 0,
           reserved_agents: 0, max_agents: 2 }] } as T;
@@ -45,13 +49,16 @@ describe('local node-spawn port', () => {
     };
     const port = localPort(core);
     const receipt = await port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-      directory: '/workspace', idempotencyKey: 'dispatch_1234567890' });
+      directory: '/workspace', idempotencyKey: 'dispatch_1234567890' }, async () => {
+      dispatchOrder.push('dispatch.fence');
+    });
     await port.release({ receipt, idempotencyKey: 'release_1234567890' });
     expect(calls[1]).toEqual(['spawn.invoke', expect.objectContaining({ node_id: 'node_1', name: 'worker_1' })]);
     expect(calls[2]).toEqual(['spawn.status', expect.objectContaining({ invocation_id: 'inv_1' })]);
     expect(calls[3]).toEqual(['spawn.release', expect.objectContaining({
       expected_agent_id: 'agent_1', node_id: 'node_1', node_name: 'desktop-1',
       name: 'worker_1', idempotency_key: 'release_1234567890' })]);
+    expect(dispatchOrder).toEqual(['dispatch.fence', 'spawn.invoke']);
     for (const [, params] of calls) {
       if (params === undefined) continue;
       expect(params).not.toHaveProperty('caller_name');
@@ -64,7 +71,7 @@ describe('local node-spawn port', () => {
     const core: TestCore = { async call<T>(): Promise<T> { calls(); throw new Error('unused'); } };
     const port = localPort(core);
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
-      model: 'codex-medium', idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      model: 'codex-medium', idempotencyKey: 'dispatch_1234567890' }, beforeDispatch)).rejects.toMatchObject({
       code: 'spawn_invalid_input',
     });
     expect(calls).not.toHaveBeenCalled();
@@ -78,9 +85,31 @@ describe('local node-spawn port', () => {
     const calls = vi.fn();
     const port = localPort({ async call<T>(): Promise<T> { calls(); throw new Error('unused'); } });
     await expect(port.spawn({ name: 'worker_1', harness: request.harness, task: 'work',
-      directory: request.directory, idempotencyKey: 'dispatch_1234567890' }))
+      directory: request.directory, idempotencyKey: 'dispatch_1234567890' }, beforeDispatch))
       .rejects.toMatchObject({ code: 'outside_scope' });
     expect(calls).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: 'invalid input', request: { directory: undefined }, targetReadFails: false },
+    { label: 'invalid scope', request: { directory: '/workspace', harness: 'claude' }, targetReadFails: false },
+    { label: 'target read failure', request: { directory: '/workspace' }, targetReadFails: true },
+    { label: 'target mismatch', request: { directory: '/workspace', node: 'desktop-other' }, targetReadFails: false },
+  ])('does not enter the dispatch hook for $label', async testCase => {
+    const entered = vi.fn(async () => undefined);
+    const core: TestCore = { async call<T>(method: string): Promise<T> {
+      if (method !== 'spawn.targets') throw new Error('spawn must not be invoked');
+      if (testCase.targetReadFails) throw new Error('target read failed');
+      return { targets: [{ id: 'node_1', name: 'desktop-1', live: true,
+        handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
+    } };
+    await expect(localPort(core).spawn({
+      name: 'worker_1', harness: testCase.request.harness ?? 'codex', task: 'work',
+      idempotencyKey: 'dispatch_1234567890',
+      ...(testCase.request.directory === undefined ? {} : { directory: testCase.request.directory }),
+      ...(testCase.request.node === undefined ? {} : { node: testCase.request.node }),
+    }, entered)).rejects.toBeInstanceOf(Error);
+    expect(entered).not.toHaveBeenCalled();
   });
 
   it('refuses local targets without an exact string id instead of fabricating one', async () => {
@@ -105,7 +134,7 @@ describe('local node-spawn port', () => {
     } };
     const port = localPort(core);
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', node: 'desktop-1',
-      directory: '/workspace', idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      directory: '/workspace', idempotencyKey: 'dispatch_1234567890' }, beforeDispatch)).rejects.toMatchObject({
       code: 'no_eligible_node',
     });
     expect(calls).toHaveBeenCalledTimes(1);
@@ -120,7 +149,7 @@ describe('local node-spawn port', () => {
       throw new Error('spawn must not be invoked');
     } };
     await expect(localPort(core).spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-      node: 'desktop-1', directory: '/workspace', idempotencyKey: 'dispatch_1234567890' }))
+      node: 'desktop-1', directory: '/workspace', idempotencyKey: 'dispatch_1234567890' }, beforeDispatch))
       .rejects.toMatchObject({ code: 'no_eligible_node' });
     expect(calls).toHaveBeenCalledTimes(1);
   });
@@ -141,7 +170,7 @@ describe('local node-spawn port', () => {
     } };
     const port = localPort(core);
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
-      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({ code: 'outside_scope' });
+      idempotencyKey: 'dispatch_1234567890' }, beforeDispatch)).rejects.toMatchObject({ code: 'outside_scope' });
     expect(status).toHaveBeenCalledOnce();
   });
 
@@ -160,7 +189,7 @@ describe('local node-spawn port', () => {
     } };
     const port = localPort(core);
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
-      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      idempotencyKey: 'dispatch_1234567890' }, beforeDispatch)).rejects.toMatchObject({
       code: 'spawn_identity_mismatch',
       cleanup: { nodeId: 'node_other', nodeName: 'desktop-2', name: 'worker_1', agentId: 'agent_1' },
     });
@@ -178,7 +207,7 @@ describe('local node-spawn port', () => {
     } };
     const port = localPort(core);
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
-      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      idempotencyKey: 'dispatch_1234567890' }, beforeDispatch)).rejects.toMatchObject({
       code: 'spawn_task_unconfirmed',
       cleanup: { nodeId: 'node_1', nodeName: 'desktop-1', name: 'worker_1', agentId: 'agent_1' },
     });
@@ -201,7 +230,7 @@ describe('local node-spawn port', () => {
         throw new Error(`unexpected core method: ${method}`);
       } };
       const failure = expect(localPort(core).spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-        directory: '/workspace', idempotencyKey: 'dispatch_1234567890', timeoutMs: 750 }))
+        directory: '/workspace', idempotencyKey: 'dispatch_1234567890', timeoutMs: 750 }, beforeDispatch))
         .rejects.toMatchObject({ code: 'spawn_unconfirmed', cleanup: {
           id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1', name: 'worker_1', agentId: 'agent_1',
         } });
@@ -230,7 +259,7 @@ describe('local node-spawn port', () => {
         throw new Error(`unexpected core method: ${method}`);
       } };
       const failure = expect(localPort(core).spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-        directory: '/workspace', idempotencyKey: 'dispatch_1234567890' }))
+        directory: '/workspace', idempotencyKey: 'dispatch_1234567890' }, beforeDispatch))
         .rejects.toMatchObject({ code: 'spawn_unconfirmed', cause: pollFailure, cleanup: {
           id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1', name: 'worker_1', agentId: 'agent_1',
         } });
@@ -258,7 +287,7 @@ describe('local node-spawn port', () => {
       throw new Error(`unexpected core method: ${method}`);
     } };
     const pending = localPort(core).spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-      directory: '/workspace', idempotencyKey: 'dispatch_1234567890' });
+      directory: '/workspace', idempotencyKey: 'dispatch_1234567890' }, beforeDispatch);
     await expect(pending).rejects.toMatchObject({ code: 'spawn_identity_mismatch', cleanup: {
       id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1', name: 'worker_1', agentId: 'agent_1',
     } });
@@ -267,12 +296,16 @@ describe('local node-spawn port', () => {
 
 describe('remote node-spawn port', () => {
   it('confirms readiness, resolves exact identity, and targets release to the same node', async () => {
+    const dispatchOrder: string[] = [];
     const placement = vi.fn()
-      .mockResolvedValueOnce({ invocationId: 'ack_1', actionName: 'spawn', status: 'pending',
+      .mockImplementationOnce(async () => {
+        dispatchOrder.push('placement.spawn');
+        return { invocationId: 'ack_1', actionName: 'spawn', status: 'pending',
         node: { id: 'node_1', name: 'desktop-1', status: 'online', capabilities: [] },
         placement: { node: 'desktop-1', confirmed: true, state: 'ready' },
         confirmation: { invocationId: 'inv_1', actionName: 'spawn', status: 'completed',
-          output: { spawned: true, ready: true, name: 'worker_1' } } })
+          output: { spawned: true, ready: true, name: 'worker_1' } } };
+      })
       .mockResolvedValueOnce({ invocationId: 'rel_1', actionName: 'release', status: 'pending',
         placement: { node: 'desktop-1', confirmed: false, state: 'accepted' } });
     const getInvocation = vi.fn().mockResolvedValue({ invocationId: 'rel_1', actionName: 'release',
@@ -282,7 +315,9 @@ describe('remote node-spawn port', () => {
       nodes: { list: async () => [] }, placement: { spawn: placement }, commands: { getInvocation },
     });
     const receipt = await port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-      idempotencyKey: 'dispatch_1234567890' });
+      idempotencyKey: 'dispatch_1234567890' }, async () => {
+      dispatchOrder.push('dispatch.fence');
+    });
     await port.release({ receipt, idempotencyKey: 'release_1234567890' });
     expect(receipt).toMatchObject({ agentId: 'agent_1', nodeName: 'desktop-1', ready: true });
     expect(placement.mock.calls[0]![0]).toMatchObject({ confirm: true, verifyReady: true,
@@ -291,6 +326,7 @@ describe('remote node-spawn port', () => {
       node: 'desktop-1', input: { name: 'worker_1', expected_agent_id: 'agent_1',
         idempotency_key: 'release_1234567890' } });
     expect(getInvocation).toHaveBeenCalledWith('release', 'rel_1');
+    expect(dispatchOrder).toEqual(['dispatch.fence', 'placement.spawn']);
   });
 
   it('returns exact cleanup identity when task delivery verification fails after spawn', async () => {
@@ -305,7 +341,7 @@ describe('remote node-spawn port', () => {
       commands: { getInvocation: vi.fn() },
     });
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      idempotencyKey: 'dispatch_1234567890' }, beforeDispatch)).rejects.toMatchObject({
       code: 'spawn_task_unconfirmed',
       cleanup: { id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1',
         name: 'worker_1', agentId: 'agent_1' },
@@ -326,7 +362,7 @@ describe('remote node-spawn port', () => {
       commands: { getInvocation: vi.fn() },
     });
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      idempotencyKey: 'dispatch_1234567890' }, beforeDispatch)).rejects.toMatchObject({
       code: 'spawn_task_unconfirmed',
       cleanup: { id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1',
         name: 'worker_1', agentId: 'agent_1' },
@@ -345,7 +381,7 @@ describe('remote node-spawn port', () => {
       commands: { getInvocation: vi.fn() },
     });
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      idempotencyKey: 'dispatch_1234567890' }, beforeDispatch)).rejects.toMatchObject({
       code: 'spawn_identity_mismatch',
       cleanup: { agentId: 'agent_spawned', name: 'worker_1', nodeName: 'desktop-1' },
     });
@@ -365,7 +401,7 @@ describe('remote node-spawn port', () => {
         commands: { getInvocation: vi.fn() },
       });
       const pending = port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-        idempotencyKey: 'dispatch_1234567890' });
+        idempotencyKey: 'dispatch_1234567890' }, beforeDispatch);
       await vi.runAllTimersAsync();
       await expect(pending).rejects.toMatchObject({
         code: 'spawn_identity_unavailable',
@@ -389,7 +425,7 @@ describe('remote node-spawn port', () => {
       commands: { getInvocation: vi.fn() },
     });
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-      idempotencyKey: 'dispatch_1234567890' })).resolves.toMatchObject({
+      idempotencyKey: 'dispatch_1234567890' }, beforeDispatch)).resolves.toMatchObject({
       nodeId: 'node_1', nodeName: 'desktop-1', agentId: 'agent_1',
     });
     expect(list).toHaveBeenCalledOnce();
@@ -407,7 +443,7 @@ describe('remote node-spawn port', () => {
       commands: { getInvocation: vi.fn() },
     });
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
-      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      idempotencyKey: 'dispatch_1234567890' }, beforeDispatch)).rejects.toMatchObject({
       code: 'spawn_placement_unconfirmed',
       cleanup: expect.objectContaining({ agentId: 'agent_1', nodeName: 'desktop-1' }),
     });

@@ -243,6 +243,8 @@ export { JournalClient, JournalRequestTimeoutError, type JournalClientOptions } 
 export { AgentWorker, type AgentWorkerOptions } from './worker.js';
 export {
   NodeSpawnError,
+  NodeSpawnPreDispatchError,
+  type BeforeNodeDispatch,
   type NodeReleaseRequest,
   type NodeSpawnAction,
   type NodeSpawnInvocation,

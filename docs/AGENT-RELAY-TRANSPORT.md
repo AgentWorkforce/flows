@@ -49,12 +49,30 @@ identity, stable worker name, and full spawn input. Tokens are never stored.
 
 The current fleet placement SDK has no caller-provided idempotency key for the
 placement invocation itself. Flows forwards the durable key to the selected
-node in the spawn action input, and still sends at most one placement spawn
-for a newly created claim. A recorded
-invocation is reconciled with `commands.getInvocation`; an existing claim with
-no recorded acknowledgement is the ambiguous crash window and fails closed.
-It is never answered by a blind second spawn. The stable worker name provides
-additional collision protection at the node.
+node in the spawn action input. A version 3 claim uses a permanent sibling
+dispatch fence: Flows writes and fsyncs a complete private marker, atomically
+hard-links it into place, and fsyncs the directory immediately before local
+`spawn.invoke` or remote `placement.spawn`. Competing workers may repeat
+preflight, but only the fence winner may enter that irreversible call. A v3
+claim with no fence proves dispatch was not entered and may retry preflight;
+once the fence exists, a missing receipt is ambiguous forever and fails
+closed. Malformed, mismatched, or unreadable fence state also fails closed.
+Legacy version 2 claims without a receipt remain ambiguous and are never
+blindly retried. A recorded invocation is reconciled with
+`commands.getInvocation`. The stable worker name provides additional
+collision protection at the node.
+
+Custom `NodeSpawnPort` implementations must declare `dispatchFenceVersion: 1`
+and await the supplied `beforeDispatch` callback immediately before their
+first irreversible spawn call. Preflight that fails before entering that
+callback may throw the exported `NodeSpawnPreDispatchError`; this is a
+privileged assertion that no remote effect was attempted, not a generic error
+wrapper. Ports must never use it for an error at or after dispatch. Existing
+one-argument `spawn` implementations are not compatible even though JavaScript
+can ignore extra arguments: the required protocol field makes them a type
+error, and the runtime refuses a missing or unknown version before creating a
+durable claim. A falsely declared port that omits the callback is fenced and
+fails closed after its first uncertain call.
 
 The claim also fixes the task's original start time. Resume never grants a new
 execution deadline. Once a correlated result was durably observed before that

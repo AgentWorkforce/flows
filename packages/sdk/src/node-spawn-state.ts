@@ -7,7 +7,7 @@ import { isRecord, nonempty, validIdempotencyKey, validNodeSpawnIdentity, validN
   type NodeSpawnIdentity, type NodeSpawnReceipt } from './node-spawn.js';
 
 export interface NodeSpawnClaim {
-  version: 2;
+  version: 2 | 3;
   baseUrl: string;
   publisherId: string;
   publisherName: string;
@@ -27,6 +27,19 @@ export interface NodeSpawnClaim {
       settledAt?: number; settledAs?: 'ack' | 'fail' } };
   cleanupPending?: { attempts: number; lastError: string; updatedAt: number };
   release?: { invocationId: string; status: string };
+}
+
+interface NodeSpawnDispatchFence {
+  version: 1;
+  claimDigest: string;
+}
+
+/** A durable write-ahead fence already owns the only permitted dispatch. */
+export class NodeSpawnDispatchFencedError extends Error {
+  constructor() {
+    super('A prior node-spawn dispatch entered the ambiguous pre-ack window; refusing a second spawn');
+    this.name = 'NodeSpawnDispatchFencedError';
+  }
 }
 
 export async function claimNodeSpawn(dataDir: string, proposed: NodeSpawnClaim): Promise<{
@@ -78,6 +91,63 @@ export async function nodeSpawnClaimPath(
   return join(canonicalDataDir, 'node-spawns', `${digest}.json`);
 }
 
+export function nodeSpawnDispatchFencePath(claimPath: string): string {
+  return `${claimPath}.dispatch`;
+}
+
+/** Reads and validates the one-way dispatch fence for a v3 claim. */
+export async function hasNodeSpawnDispatchFence(
+  claimPath: string,
+  claim: NodeSpawnClaim,
+): Promise<boolean> {
+  const fencePath = nodeSpawnDispatchFencePath(claimPath);
+  let text: string;
+  try { text = await readFile(fencePath, 'utf8'); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw invalidDispatchFence(fencePath, error);
+  }
+  let value: unknown;
+  try { value = JSON.parse(text) as unknown; }
+  catch (error) { throw invalidDispatchFence(fencePath, error); }
+  decodeDispatchFence(value, fencePath, claim);
+  return true;
+}
+
+/**
+ * Atomically publishes the write-ahead fact immediately before dispatch.
+ * The marker is permanent: a crash after it is indistinguishable from a sent
+ * request, so no later worker may publish or dispatch again.
+ */
+export async function claimNodeSpawnDispatch(
+  claimPath: string,
+  claim: NodeSpawnClaim,
+): Promise<void> {
+  if (claim.version !== 3) throw new Error('Legacy node-spawn claims cannot enter the fenced dispatch protocol');
+  const fencePath = nodeSpawnDispatchFencePath(claimPath);
+  const directory = dirname(fencePath);
+  const temporary = `${fencePath}.${randomUUID()}.tmp`;
+  const fence: NodeSpawnDispatchFence = {
+    version: 1,
+    claimDigest: dispatchClaimDigest(claim),
+  };
+  const file = await open(temporary, 'wx', 0o600);
+  try {
+    try { await file.writeFile(canonicalize(fence)); await file.sync(); }
+    finally { await file.close(); }
+    try {
+      await link(temporary, fencePath);
+      await syncDirectory(directory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      await hasNodeSpawnDispatchFence(claimPath, claim);
+      throw new NodeSpawnDispatchFencedError();
+    }
+  } finally {
+    await unlink(temporary).catch(() => undefined);
+  }
+}
+
 export async function recordNodeSpawn(path: string, claim: NodeSpawnClaim): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`;
   const file = await open(temporary, 'wx', 0o600);
@@ -116,23 +186,25 @@ export async function readNodeSpawnClaim(path: string): Promise<NodeSpawnClaim> 
 }
 
 function sameClaim(prior: NodeSpawnClaim, proposed: NodeSpawnClaim): boolean {
-  const { spawn: _priorSpawn, cleanup: _priorCleanup, failure: _priorFailure,
+  const { version: _priorVersion,
+    spawn: _priorSpawn, cleanup: _priorCleanup, failure: _priorFailure,
     result: _priorResult, cleanupPending: _priorCleanupPending,
     release: _priorRelease, ...priorIdentity } = prior;
-  const { spawn: _spawn, cleanup: _cleanup, failure: _failure, result: _result,
+  const { version: _version,
+    spawn: _spawn, cleanup: _cleanup, failure: _failure, result: _result,
     cleanupPending: _cleanupPending, release: _release, ...proposedIdentity } = proposed;
   const { task: _priorRenderedTask, ...priorRequestIdentity } = priorIdentity.request;
   const { task: _renderedTask, ...proposedRequestIdentity } = proposedIdentity.request;
-  return canonicalize({ ...priorIdentity, request: priorRequestIdentity,
+  return canonicalize({ ...priorIdentity, version: proposed.version, request: priorRequestIdentity,
     startedAt: proposed.startedAt }) === canonicalize({
-    ...proposedIdentity, request: proposedRequestIdentity,
+    ...proposedIdentity, version: proposed.version, request: proposedRequestIdentity,
   });
 }
 
 function decodeNodeSpawnClaim(value: unknown, label: string): NodeSpawnClaim {
   const invalid = (): never => { throw new Error(`Invalid durable node-spawn claim: ${label}`); };
   const record = isRecord(value) ? value : invalid();
-  if (record.version !== 2
+  if ((record.version !== 2 && record.version !== 3)
     || ![record.baseUrl, record.publisherId, record.publisherName, record.runId, record.stepId, record.agentName]
       .every(nonempty)
     || !validIdempotencyKey(record.idempotencyKey)
@@ -183,6 +255,28 @@ function decodeNodeSpawnClaim(value: unknown, label: string): NodeSpawnClaim {
     }
   }
   return claim;
+}
+
+function dispatchClaimDigest(claim: NodeSpawnClaim): string {
+  const { spawn: _spawn, cleanup: _cleanup, failure: _failure,
+    result: _result, cleanupPending: _cleanupPending, release: _release,
+    ...identity } = claim;
+  return createHash('sha256').update(canonicalize(identity)).digest('hex');
+}
+
+function decodeDispatchFence(value: unknown, label: string, claim: NodeSpawnClaim): NodeSpawnDispatchFence {
+  const record = isRecord(value) ? value : undefined;
+  if (record?.version !== 1
+    || typeof record.claimDigest !== 'string'
+    || !/^[a-f0-9]{64}$/.test(record.claimDigest)
+    || record.claimDigest !== dispatchClaimDigest(claim)) {
+    throw invalidDispatchFence(label);
+  }
+  return record as unknown as NodeSpawnDispatchFence;
+}
+
+function invalidDispatchFence(label: string, cause?: unknown): Error {
+  return new Error(`Invalid durable node-spawn dispatch fence: ${label}`, { cause });
 }
 
 const safeTime = (value: unknown): value is number =>
