@@ -66,9 +66,13 @@ entry.
 The exact built-in local Desktop port has one additional recovery contract.
 Core Bridge 18.1 or newer persists `spawn.invoke` idempotency keys, so after a
 durable fence and a lost reply Flows may repeat the identical local request and
-recover the original invocation. That exemption is registered by exact
-prototype and method identity; wrappers, subclasses, overrides, accessors,
-custom ports, remote placement and legacy version 2 claims remain fail-closed.
+recover the original invocation even when mutable current scope or target
+preflight would no longer admit a new dispatch. That exemption is registered
+only when the SDK runtime loaded the exact Core Bridge module and the local
+prototype and lifecycle method identities remain unchanged. Injected bridges,
+wrappers, subclasses, overrides, accessors, custom ports, remote placement and
+legacy version 2 claims remain fail-closed. New unfenced local dispatches still
+enforce current caller scope and target eligibility.
 
 ## Hosted and self-hosted execution
 

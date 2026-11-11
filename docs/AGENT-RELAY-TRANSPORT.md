@@ -62,11 +62,15 @@ The exact built-in local Desktop port is the sole fenced-replay exception:
 Core Bridge 18.1 or newer durably deduplicates `spawn.invoke` by the forwarded
 idempotency key, so a restart may repeat that identical request and recover the
 original invocation after its reply was lost. Flows admits that replay only for
-the registered, unchanged `LocalNodeSpawnPort` prototype and re-verifies the
-existing fence before entry. A missing receipt from remote placement, a custom
-or overridden port, or a legacy version 2 claim remains ambiguous and fails
-closed without another dispatch. Malformed, mismatched, or unreadable fence
-state also fails closed. A recorded invocation is reconciled with
+the SDK runtime built from the exact module returned by `loadCoreBridge()`, with
+the unchanged local port prototype and lifecycle methods, and re-verifies the
+existing fence before entry. That replay repeats the already-admitted request
+and exact node without applying mutable current directory-scope or live-target
+preflight. A new unfenced dispatch still applies all current caller scope and
+target checks. A missing receipt from remote placement, an injected bridge, a
+custom or overridden port, or a legacy version 2 claim remains ambiguous and
+fails closed without another dispatch. Malformed, mismatched, or unreadable
+fence state also fails closed. A recorded invocation is reconciled with
 `commands.getInvocation`. The stable worker name provides additional
 collision protection at the node.
 
@@ -75,9 +79,9 @@ and accept the supplied `beforeDispatch` callback. Because Flows cannot audit
 arbitrary port code, it publishes and fsyncs the fence before entering a custom
 `spawn`; an error from that call is permanently ambiguous and cannot be retried.
 The callback remains part of the protocol and is idempotent after publication.
-Only the SDK's exact built-in local `spawn` and `targets` method set may use
+Only the SDK's exact built-in local lifecycle method set may use
 `NodeSpawnPreDispatchError` to retain retryable target preflight. Replacing or
-overriding either method removes the narrow trust and fences it before entry.
+overriding a relevant method removes the narrow trust and fences it before entry.
 Existing one-argument `spawn` implementations are not compatible
 even though JavaScript can ignore extra arguments: the required protocol field
 makes them a type error, and the runtime refuses a missing or unknown version

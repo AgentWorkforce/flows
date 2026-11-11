@@ -15,14 +15,21 @@ interface FencedNodeSpawnOptions {
   replayExistingFence?: boolean;
 }
 
-interface RetryablePreflightIdentity {
+interface ExactPortIdentity {
   prototype: object;
   spawn: NodeSpawnPort['spawn'];
   targets: NodeSpawnPort['targets'];
+  status: NodeSpawnPort['status'];
+  release: NodeSpawnPort['release'];
 }
 
-const retryablePreflightPorts = new WeakMap<NodeSpawnPort, RetryablePreflightIdentity>();
-const replayableFencedPorts = new WeakMap<NodeSpawnPort, RetryablePreflightIdentity>();
+interface ReplayableFencedRegistration {
+  identity: ExactPortIdentity;
+  replay: NodeSpawnPort['spawn'];
+}
+
+const retryablePreflightPorts = new WeakMap<NodeSpawnPort, ExactPortIdentity>();
+const replayableFencedPorts = new WeakMap<NodeSpawnPort, ReplayableFencedRegistration>();
 
 /**
  * Registers the exact built-in method set that may perform proven side-effect-
@@ -31,40 +38,55 @@ const replayableFencedPorts = new WeakMap<NodeSpawnPort, RetryablePreflightIdent
  */
 export function registerRetryablePreflightPort(
   port: NodeSpawnPort,
-  identity: RetryablePreflightIdentity,
+  identity: ExactPortIdentity,
 ): void {
-  if (hasExactPreflightMethods(port, identity)) retryablePreflightPorts.set(port, identity);
+  if (hasExactPortMethods(port, identity)) retryablePreflightPorts.set(port, identity);
 }
 
-/** Registers an exact built-in port whose server contract replays a fenced dispatch by idempotency key. */
+/** Registers an internal handler whose server contract replays a fenced dispatch by idempotency key. */
 export function registerReplayableFencedPort(
   port: NodeSpawnPort,
-  identity: RetryablePreflightIdentity,
+  identity: ExactPortIdentity,
+  replay: NodeSpawnPort['spawn'],
 ): void {
-  if (hasExactPreflightMethods(port, identity)) replayableFencedPorts.set(port, identity);
+  if (hasExactPortMethods(port, identity)) {
+    replayableFencedPorts.set(port, { identity, replay });
+  }
 }
 
 /** True only while the exact registered built-in method set remains installed. */
 export function hasReplayableFencedDispatch(port: NodeSpawnPort): boolean {
-  const identity = replayableFencedPorts.get(port);
-  return identity !== undefined && hasExactPreflightMethods(port, identity);
+  return replayableFencedRegistration(port) !== undefined;
 }
 
 function hasRetryablePreflight(port: NodeSpawnPort): boolean {
   const identity = retryablePreflightPorts.get(port);
-  return identity !== undefined && hasExactPreflightMethods(port, identity);
+  return identity !== undefined && hasExactPortMethods(port, identity);
 }
 
-function hasExactPreflightMethods(
+function replayableFencedRegistration(
   port: NodeSpawnPort,
-  identity: RetryablePreflightIdentity,
+): ReplayableFencedRegistration | undefined {
+  const registration = replayableFencedPorts.get(port);
+  return registration !== undefined && hasExactPortMethods(port, registration.identity)
+    ? registration : undefined;
+}
+
+function hasExactPortMethods(
+  port: NodeSpawnPort,
+  identity: ExactPortIdentity,
 ): boolean {
   if (Object.getPrototypeOf(port) !== identity.prototype
     || Object.getOwnPropertyDescriptor(port, 'spawn') !== undefined
-    || Object.getOwnPropertyDescriptor(port, 'targets') !== undefined) return false;
+    || Object.getOwnPropertyDescriptor(port, 'targets') !== undefined
+    || Object.getOwnPropertyDescriptor(port, 'status') !== undefined
+    || Object.getOwnPropertyDescriptor(port, 'release') !== undefined) return false;
   const spawn = Object.getOwnPropertyDescriptor(identity.prototype, 'spawn');
   const targets = Object.getOwnPropertyDescriptor(identity.prototype, 'targets');
-  return spawn?.value === identity.spawn && targets?.value === identity.targets;
+  const status = Object.getOwnPropertyDescriptor(identity.prototype, 'status');
+  const release = Object.getOwnPropertyDescriptor(identity.prototype, 'release');
+  return spawn?.value === identity.spawn && targets?.value === identity.targets
+    && status?.value === identity.status && release?.value === identity.release;
 }
 
 /** Enters exactly one irreversible spawn behind a durable, one-way fence. */
@@ -72,10 +94,19 @@ export async function dispatchFencedNodeSpawn(
   options: FencedNodeSpawnOptions,
 ): Promise<NodeSpawnReceipt> {
   const retryablePreflight = hasRetryablePreflight(options.port);
+  let replay: NodeSpawnPort['spawn'] | undefined;
   let dispatchPublished = false;
   if (options.replayExistingFence === true) {
-    if (!hasReplayableFencedDispatch(options.port)
-      || !await hasNodeSpawnDispatchFence(options.claimPath, options.claim)) {
+    if (!await hasNodeSpawnDispatchFence(options.claimPath, options.claim)) {
+      throw new NodeSpawnError(
+        'A fenced node-spawn replay requires the exact built-in replay contract and durable fence',
+        'spawn_dispatch_fence_missing',
+      );
+    }
+    // Recheck exact port identity after the asynchronous durable-fence read and
+    // immediately before selecting the internal replay handler.
+    replay = replayableFencedRegistration(options.port)?.replay;
+    if (replay === undefined) {
       throw new NodeSpawnError(
         'A fenced node-spawn replay requires the exact built-in replay contract and durable fence',
         'spawn_dispatch_fence_missing',
@@ -94,7 +125,8 @@ export async function dispatchFencedNodeSpawn(
     dispatchPublished = true;
   }
   try {
-    pendingSpawn = options.port.spawn(options.request, async () => {
+    const spawn = replay ?? options.port.spawn.bind(options.port);
+    pendingSpawn = spawn(options.request, async () => {
       dispatchHookEntered = true;
       options.signal?.throwIfAborted();
       if (dispatchPublished) return;

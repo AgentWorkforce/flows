@@ -174,6 +174,9 @@ const REQUIRED_CORE_BRIDGE_METHODS = {
   serviceCallerDisconnect: true,
 } as const satisfies Record<keyof CoreBridgeApi, true>;
 
+const loadedCoreBridges = new WeakSet<object>();
+const LOCAL_FENCED_REPLAY = Symbol('LocalNodeSpawnPort.fencedReplay');
+
 /** Fails before local admission when an installed optional bridge lacks the required contract. */
 export function assertCoreBridgeApi(value: unknown): asserts value is CoreBridgeApi {
   const module = (typeof value === 'object' && value !== null)
@@ -205,7 +208,21 @@ export async function loadCoreBridge(): Promise<CoreBridgeApi> {
     );
   }
   assertCoreBridgeApi(bridge);
+  loadedCoreBridges.add(bridge);
   return bridge;
+}
+
+/** Enables replay only for the exact bridge module admitted by loadCoreBridge(). */
+export function enableLoadedCoreBridgeReplay(
+  port: LocalNodeSpawnPort,
+  bridge: CoreBridgeApi,
+): void {
+  if (!loadedCoreBridges.has(bridge)) return;
+  registerReplayableFencedPort(
+    port,
+    LOCAL_NODE_SPAWN_IDENTITY,
+    (request, beforeDispatch) => port[LOCAL_FENCED_REPLAY](request, beforeDispatch),
+  );
 }
 
 /** Native local spawn adapter over one already authenticated schema-v2 bridge connection. */
@@ -219,7 +236,6 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     private readonly exactNode: { readonly id: string; readonly name: string },
   ) {
     registerRetryablePreflightPort(this, LOCAL_NODE_SPAWN_IDENTITY);
-    registerReplayableFencedPort(this, LOCAL_NODE_SPAWN_IDENTITY);
   }
 
   async targets(): Promise<NodeSpawnTarget[]> {
@@ -286,6 +302,50 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     } catch (error) {
       throw new NodeSpawnPreDispatchError(error);
     }
+    return this.invokeSpawn(
+      { ...request, directory: request.directory },
+      beforeDispatch,
+      { id: target.id, name: target.name },
+      allTargets,
+    );
+  }
+
+  private async [LOCAL_FENCED_REPLAY](
+    request: NodeSpawnRequest,
+    beforeDispatch: BeforeNodeDispatch,
+  ): Promise<NodeSpawnReceipt> {
+    if (!request.directory || !isAbsolute(request.directory)) {
+      throw new NodeSpawnError('Local node spawn requires an absolute directory', 'spawn_invalid_input');
+    }
+    if (!validIdempotencyKey(request.idempotencyKey)) {
+      throw new NodeSpawnError('Invalid node-spawn idempotency key', 'spawn_invalid_input');
+    }
+    if (request.model !== undefined || request.repo !== undefined || request.sandboxOnly !== undefined) {
+      throw new NodeSpawnError(
+        'The Desktop core bridge does not accept model, repository, or sandbox placement overrides',
+        'spawn_invalid_input',
+      );
+    }
+    if (request.node !== undefined && request.node !== this.exactNode.name) {
+      throw new NodeSpawnError('The requested node differs from the authenticated Desktop node',
+        'spawn_identity_mismatch');
+    }
+    // The original v3 claim was already admitted and fenced. Repeating the
+    // exact logical request lets Relay replay that durable claim even if the
+    // caller's current directory scope or live-target view has since changed.
+    return this.invokeSpawn(
+      { ...request, directory: request.directory },
+      beforeDispatch,
+      this.exactNode,
+    );
+  }
+
+  private async invokeSpawn(
+    request: NodeSpawnRequest & { directory: string },
+    beforeDispatch: BeforeNodeDispatch,
+    target: { readonly id: string; readonly name: string },
+    knownTargets: readonly { readonly id?: string; readonly name: string }[] = [target],
+  ): Promise<NodeSpawnReceipt> {
     await beforeDispatch();
     const raw = await this.bridge.spawnInvoke(this.core, {
       node_id: target.id,
@@ -301,7 +361,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     const confirmation = await this.wait('spawn', raw.id, request.timeoutMs,
       mapCoreInvocation('spawn', raw));
     const settled = confirmation.invocation;
-    const settledTarget = allTargets.find(candidate => candidate.id === settled.nodeId);
+    const settledTarget = knownTargets.find(candidate => candidate.id === settled.nodeId);
     const cleanup = confirmation.cleanup ?? (settled.agentId && settled.name && settledTarget?.id
       ? { id: settled.id, nodeId: settledTarget.id, nodeName: settledTarget.name,
         name: settled.name, agentId: settled.agentId }
@@ -405,6 +465,8 @@ const LOCAL_NODE_SPAWN_IDENTITY = Object.freeze({
   prototype: LocalNodeSpawnPort.prototype,
   spawn: LocalNodeSpawnPort.prototype.spawn,
   targets: LocalNodeSpawnPort.prototype.targets,
+  status: LocalNodeSpawnPort.prototype.status,
+  release: LocalNodeSpawnPort.prototype.release,
 });
 
 function withinDirectory(root: string, candidate: string): boolean {

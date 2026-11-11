@@ -26,6 +26,7 @@ import { createLocalNodeSpawnRuntime, createNodeSpawnRuntime, createNodeSpawnRun
 import type { CallerDescriptor, CoreBridgeApi, CoreBridgeClient } from '../src/node-spawn-local.js';
 import { waitForNodeResult } from '../src/node-spawn-result.js';
 import { runAgentRelayTask } from '../src/agent-relay-transport.js';
+import { hasReplayableFencedDispatch } from '../src/node-spawn-dispatch.js';
 
 describe('remote node-spawn runtime', () => {
   beforeEach(() => {
@@ -302,6 +303,15 @@ describe('Desktop service-caller runtime', () => {
     await runtime.disconnect?.();
     expect(bridge.serviceCallerDisconnect).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('never grants fenced replay authority to an injected structural bridge', async () => {
+    const { bridge } = fixture();
+    const runtime = await createLocalNodeSpawnRuntime('/tmp/caller.json', { bridge });
+    expect(hasReplayableFencedDispatch(runtime.port)).toBe(false);
+    runtime.port.status = vi.fn(runtime.port.status.bind(runtime.port));
+    expect(hasReplayableFencedDispatch(runtime.port)).toBe(false);
+    await runtime.disconnect?.();
   });
 
   it('fails closed when the live publisher or workspace differs from caller.json', async () => {

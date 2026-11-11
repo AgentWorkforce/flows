@@ -2,6 +2,7 @@ import { isIP } from 'node:net';
 import { isAbsolute } from 'node:path';
 import type { NodeResultInboxClient, NodeResultTerminalFailure } from './node-spawn-result.js';
 import {
+  enableLoadedCoreBridgeReplay,
   LocalNodeSpawnPort,
   loadCoreBridge,
   type CallerDescriptor,
@@ -137,8 +138,10 @@ export async function createLocalNodeSpawnRuntime(
         'caller_identity_mismatch',
       );
     }
+    const port = new LocalNodeSpawnPort(core, bridge, descriptor, identity.node);
+    enableLoadedCoreBridgeReplay(port, bridge);
     return {
-      port: new LocalNodeSpawnPort(core, bridge, descriptor, identity.node),
+      port,
       inbox: localResultInbox(bridge, descriptor),
       publisher: identity.publisher,
       baseUrl: identity.base_url,
