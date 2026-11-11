@@ -128,3 +128,26 @@ describe('--agent-capacity', () => {
     }
   });
 });
+
+describe('--service-caller-file', () => {
+  it('carries an explicit Desktop handoff only for local run and resume workers', () => {
+    expect(parseCliArgs(['run', '--local-agent', '--service-caller-file', '/tmp/caller.json', 'flow.yaml']))
+      .toMatchObject({ command: 'run', localAgent: true, serviceCallerFile: '/tmp/caller.json' });
+    expect(parseCliArgs(['resume', '--local-agent', '--service-caller-file', '/tmp/caller.json', 'run-1']))
+      .toMatchObject({ command: 'resume', localAgent: true, serviceCallerFile: '/tmp/caller.json' });
+  });
+
+  it('refuses a handoff that would be ignored or sent to Cloud', () => {
+    for (const argv of [
+      ['run', '--service-caller-file', '/tmp/caller.json', 'flow.yaml'],
+      ['run', '--cloud', '--local-agent', '--service-caller-file', '/tmp/caller.json', 'flow.yaml'],
+      ['check', '--service-caller-file', '/tmp/caller.json', 'flow.yaml'],
+      ['run', '--local-agent', '--service-caller-file', 'relative/caller.json', 'flow.yaml'],
+      ['run', '--local-agent', '--service-caller-file', '/tmp/caller\0.json', 'flow.yaml'],
+      ['run', '--local-agent', '--service-caller-file', 'flow.yaml'],
+      ['run', '--local-agent', '--service-caller-file', '/tmp/a', '--service-caller-file', '/tmp/b', 'flow.yaml'],
+    ]) {
+      expect(parseCliArgs(argv), argv.join(' ')).toBeUndefined();
+    }
+  });
+});

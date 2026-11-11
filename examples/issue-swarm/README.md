@@ -1,5 +1,11 @@
 # issue-swarm
 
+> **Legacy example:** this source demonstrates the retired retained-session
+> broker API (`transport: 'broker'`, `keepAlive`, `f.message`, and `f.release`).
+> Current releases refuse it before child-run admission. It remains as migration
+> reference until a native retained-session design is approved; do not deploy or
+> run it. See [the node-spawn migration note](../../docs/MIGRATION-NODE-SPAWN.md).
+
 Open labeled GitHub issues become independently implemented pull requests. Each
 issue gets a branch, worktree, and persistent broker implementer. Three reviewers
 use `adversarial-review` with maintainability, git history, and code structure
@@ -7,28 +13,9 @@ lenses. Findings return to the same implementer. A bounded monitor sends CI,
 conflict, and unresolved review-thread repairs using its `pr-comments` skill.
 The flow never merges.
 
-Run from a checkout of the target repository with its `origin` configured:
-
-```sh
-flows run examples/issue-swarm/issue-swarm.flow.ts \
-  --input '{"label":"agent","count":3,"monitorMinutes":30}'
-```
-
-The source is self-contained and deploys as-is for manual runs by name:
-
-```sh
-flows deploy examples/issue-swarm/issue-swarm.flow.ts --repo owner/name
-flows run issue-swarm --input '{"label":"agent","count":3}'
-```
-
 The example requires the surface/SDK broker transport with `f.message` timeouts
-and `f.release`. Install and authenticate `gh`, `git`, Node 22+, Claude Code and
-Codex (or the selected CLIs), and start the local Agent Relay broker. The broker
-installs named skills from the canonical AgentWorkforce skills package. Broker
-agents are ordinary sessions visible in Relay Desktop; the returned agent name
-identifies the session receiving follow-up messages. The monitor has write
-authority to push branches and address PR comments, so run on repositories where
-those actions are intended.
+and `f.release`; those surfaces no longer have an execution backend. The
+remaining description documents the former behavior for migration planning.
 
 | Input | Default | Meaning |
 | --- | --- | --- |

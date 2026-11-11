@@ -1,479 +1,596 @@
-import { createHash } from "node:crypto";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  runAgentRelayTask,
-  readAgentRelayEnv,
-  type AgentRelayTaskRequest,
-} from "../src/agent-relay-transport.js";
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AgentRelayTransportError, runAgentRelayTask,
+  type AgentRelayTaskRequest } from '../src/agent-relay-transport.js';
+import { NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
+import type { NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
+import { NodeSpawnError, type NodeSpawnPort, type NodeSpawnReceipt } from '../src/node-spawn.js';
+import { EventEmitter } from 'node:events';
+import { AgentWorker } from '../src/worker.js';
+import type { JournalClient } from '../src/journal-client.js';
+import type { StepDispatchEvent } from '../src/protocol.js';
+import { readNodeSpawnClaims, recordNodeSpawn } from '../src/node-spawn-state.js';
 
-const directories: string[] = [];
-afterEach(async () => {
-  vi.restoreAllMocks();
-  vi.unstubAllEnvs();
-  vi.unstubAllGlobals();
-  await Promise.all(
-    directories
-      .splice(0)
-      .map((path) => rm(path, { recursive: true, force: true })),
-  );
+const request = (dataDir: string): AgentRelayTaskRequest => ({
+  cli: 'codex', task: 'Implement the change', runId: 'run_1', stepId: 'edit',
+  idempotencyKey: 'dispatch_1234567890', attempt: 1, dataDir, timeoutMs: 10_000,
 });
-const ok = (data: unknown) =>
-  new Response(JSON.stringify({ ok: true, data }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
 
-async function fixture() {
-  const dataDir = await mkdtemp(join(tmpdir(), "flows-relay-task-"));
-  directories.push(dataDir);
-  const request: AgentRelayTaskRequest = {
-    cli: "claude",
-    task: "return output",
-    runId: "run",
-    stepId: "step",
-    idempotencyKey: "journal-key",
-    dataDir,
-  };
-  const invocationId =
-    "inv_idem_" +
-    createHash("sha256")
-      .update(
-        [
-          "action-invoke-v1",
-          "workspace",
-          "caller",
-          "task.run",
-          "journal-key",
-        ].join("\0"),
-      )
-      .digest("hex");
-  let input: Record<string, unknown>;
-  let status = "completed";
-  let caller = "caller";
-  let result: unknown = { answer: 42 };
-  let generation = "generation-1";
-  let losePost = false;
-  const deadline = new Date(Date.now() + 86400000).toISOString();
-  let reads = 0;
-  const frames: { url: string; init?: RequestInit }[] = [];
-  const fetchMock = vi.fn(
-    async (url: string | URL | Request, init?: RequestInit) => {
-      const address = String(url);
-      frames.push({ url: address, init });
-      expect((init?.headers as Record<string, string>).authorization).toBe(
-        "Bearer fixture-agent-token",
-      );
-      expect(init?.redirect).toBe("error");
-      if (address.endsWith("/v1/agent"))
-        return ok({
-          id: caller,
-          workspace_id: "workspace",
-          name: "caller-name",
-        });
-      if (address.endsWith("/v1/workspace")) return ok({ id: "workspace" });
-      if (address.endsWith("/invoke")) {
-        expect(init?.method).toBe("POST");
-        expect(
-          (init?.headers as Record<string, string>)["Idempotency-Key"],
-        ).toBe("journal-key");
-        input = JSON.parse(String(init?.body)).input;
-        if (losePost) throw new Error("response lost after engine commit");
-        return ok({
-          invocation_id: invocationId,
-          action_name: "task.run",
-          input,
-          status: "completed",
-        });
-      }
-      expect(address).toBe(
-        `https://cast.agentrelay.com/v1/actions/task.run/invocations/${invocationId}`,
-      );
-      reads++;
-      return ok({
-        invocation_id: invocationId,
-        action_name: "task.run",
-        caller_id: "caller",
-        input,
-        status,
-        task_execution: {
-          execution_id: `${invocationId}/1`,
-          run_id: "run",
-          step_id: "step",
-          dispatch_id: "journal-key",
-          deadline,
-          ...(status === "pending"
-            ? {}
-            : {
-                worker_generation: generation,
-                accepted_at: "2026-01-01T00:00:00.000Z",
-              }),
-          accounting: { tokens_input: 7, tokens_output: 3 },
-        },
-        output: status === "completed" ? result : null,
-        error: status === "failed" ? "task_deadline_exceeded" : null,
-        completed_at: ["completed", "failed"].includes(status)
-          ? "2026-01-01T00:00:01.000Z"
-          : null,
-      });
-    },
-  );
-  return {
-    request,
-    fetchMock,
-    frames,
-    invocationId,
-    run: (signal?: AbortSignal) =>
-      runAgentRelayTask(request, {
-        agentToken: "fixture-agent-token",
-        fetch: fetchMock as typeof fetch,
-        pollMs: 1,
-        signal,
-      }),
-    setStatus: (value: string) => {
-      status = value;
-    },
-    setCaller: (value: string) => {
-      caller = value;
-    },
-    setOutput: (value: unknown) => {
-      result = value;
-    },
-    setGeneration: (value: string) => {
-      generation = value;
-    },
-    losePost: () => {
-      losePost = true;
-    },
-    get reads() {
-      return reads;
-    },
-    posts: () => frames.filter((frame) => frame.init?.method === "POST"),
-  };
+const roots: string[] = [];
+afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
+async function dataDirectory(label: string): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), label));
+  roots.push(directory);
+  return directory;
 }
 
-describe("durable Relay task transport", () => {
-  it("requires an agent token; a workspace key is not an invocation credential", () => {
-    expect(() =>
-      readAgentRelayEnv({ RELAY_API_KEY: "fixture-workspace-key" }),
-    ).toThrow(/RELAY_AGENT_TOKEN/);
-    expect(readAgentRelayEnv({ RELAY_AGENT_TOKEN: " token " })).toEqual({
-      agentToken: "token",
-      baseUrl: "https://cast.agentrelay.com",
+function fixture(result: 'completed' | 'failed' = 'completed'): { runtime: NodeSpawnRuntime; spawn: ReturnType<typeof vi.fn>;
+  release: ReturnType<typeof vi.fn>; status: ReturnType<typeof vi.fn>;
+  ack: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> } {
+  const receipt: NodeSpawnReceipt = {
+    id: 'inv_spawn_1', action: 'spawn', status: 'completed', nodeId: 'node_1', nodeName: 'desktop-1',
+    name: 'placeholder', agentId: 'agent_1', spawned: true, ready: true,
+  };
+  const spawn = vi.fn<NodeSpawnPort['spawn']>(async (input, beforeDispatch) => {
+    await beforeDispatch();
+    return { ...receipt, name: input.name };
+  });
+  const release = vi.fn(async () => ({ id: 'inv_release_1', action: 'release' as const,
+    status: 'completed' as const, spawned: false, ready: false, released: true }));
+  const status = vi.fn(async () => ({ ...receipt, name: receipt.name }));
+  const ack = vi.fn(async () => ({}));
+  const fail = vi.fn(async () => ({}));
+  const port: NodeSpawnPort = {
+    dispatchFenceVersion: 1, targets: async () => [], spawn, status, release,
+  };
+  const runtime: NodeSpawnRuntime = {
+    port,
+    publisher: { id: 'publisher_1', name: 'flows-publisher' },
+    baseUrl: 'https://cast.agentrelay.com',
+    inbox: { inbox: {
+      subscribe: async function* () {
+        const name = spawn.mock.results[0]?.value === undefined
+          ? receipt.name : (await spawn.mock.results[0]!.value).name;
+        yield {
+          id: 'delivery_1',
+          message: {
+            id: 'message_1',
+            from: { id: 'agent_1', name },
+            text: NODE_RESULT_PREFIX + JSON.stringify({
+              version: 1, run_id: 'run_1', step_id: 'edit', dispatch_id: 'dispatch_1234567890',
+              status: result,
+              ...(result === 'completed' ? { output: { summary: 'done' } } : { error: 'agent reported failure' }),
+              accounting: { tokens_input: 10, tokens_output: 5 },
+            }),
+          },
+        };
+      },
+      ack,
+      fail,
+    } },
+  };
+  return { runtime, spawn, release, status, ack, fail };
+}
+
+describe('native node-spawn task transport', () => {
+  it('spawns once, captures exact-sender inbox evidence, and leaves ack to the journal caller', async () => {
+    const dataDir = await dataDirectory('flows-node-spawn-');
+    const f = fixture();
+    const result = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.spawn.mock.calls[0]![0]).toMatchObject({ harness: 'codex', idempotencyKey: 'dispatch_1234567890' });
+    expect(f.spawn.mock.calls[0]![0]).not.toHaveProperty('directory');
+    expect(f.release).toHaveBeenCalledWith(expect.objectContaining({
+      receipt: expect.objectContaining({ agentId: 'agent_1', nodeName: 'desktop-1' }),
+    }));
+    expect(result.receipt).toMatchObject({
+      action_name: 'spawn', status: 'completed', output: { summary: 'done' },
+      task_execution: { agent_id: 'agent_1', delivery_id: 'delivery_1', release_invocation_id: 'inv_release_1' },
     });
+    expect(f.ack).not.toHaveBeenCalled();
+    await result.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    await result.delivery.ack();
+    expect(f.ack).toHaveBeenCalledWith(expect.objectContaining({ inboxItemId: 'delivery_1', state: 'read' }));
   });
-  it("uses supported routes and snake_case data envelopes, returning only final GET output", async () => {
-    const f = await fixture();
-    const receipt = await f.run();
-    expect(receipt.output).toEqual({ answer: 42 });
-    expect(receipt.status).toBe("completed");
-    expect(f.posts()).toHaveLength(1);
-    expect(f.reads).toBe(1);
-    expect(
-      JSON.parse(String(f.posts()[0]!.init!.body)).input.task_context,
-    ).toEqual({
-      run_id: "run",
-      step_id: "step",
-      dispatch_id: "journal-key",
-      timeout_ms: 86400000,
+
+  it('replays a durable result without a second spawn, release, or remote status lookup', async () => {
+    const dataDir = await dataDirectory('flows-node-recover-');
+    const f = fixture();
+    await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    const recovered = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    expect(f.spawn).toHaveBeenCalledTimes(1);
+    expect(f.release).toHaveBeenCalledTimes(1);
+    expect(f.status).not.toHaveBeenCalled();
+    expect(recovered.receipt.status).toBe('completed');
+  });
+
+  it('retains the original inbox teardown barrier across a failed release and cached retry', async () => {
+    const dataDir = await dataDirectory('flows-node-release-retry-teardown-');
+    const f = fixture();
+    let finishTeardown!: () => void;
+    const settlementReady = new Promise<{ failure?: unknown }>(resolve => {
+      finishTeardown = () => resolve({});
     });
+    let delivered = false;
+    const subscribe = vi.fn(() => ({ [Symbol.asyncIterator]() { return {
+      async next() {
+        if (delivered) return new Promise<IteratorResult<never>>(() => undefined);
+        delivered = true;
+        const name = (await f.spawn.mock.results[0]!.value).name;
+        return { done: false as const, value: { id: 'delivery_1', settlementReady,
+          message: { id: 'message_1', from: { id: 'agent_1', name },
+            text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1',
+              step_id: 'edit', dispatch_id: 'dispatch_1234567890', status: 'completed',
+              output: { summary: 'done' }, accounting: { tokens_input: 10, tokens_output: 5 } }) } } };
+      },
+      async return() { return { done: true as const, value: undefined }; },
+    }; } }));
+    f.runtime.inbox.inbox.subscribe = subscribe;
+    f.release.mockRejectedValueOnce(new Error('release unavailable'));
+
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('release unavailable');
+    const recovered = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    expect(subscribe).toHaveBeenCalledOnce();
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledTimes(2);
+    await recovered.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+    const settling = recovered.delivery.ack();
+    const settledBeforeTeardown = await Promise.race([
+      settling.then(() => true),
+      new Promise<false>(resolve => setTimeout(() => resolve(false), 100)),
+    ]);
+    expect(settledBeforeTeardown).toBe(false);
+    expect(f.ack).not.toHaveBeenCalled();
+    expect(f.fail).not.toHaveBeenCalled();
+    finishTeardown();
+    await settling;
+    expect(f.ack).toHaveBeenCalledOnce();
+    expect(f.fail).not.toHaveBeenCalled();
   });
-  it("keeps readiness/interim states pending even when the POST acknowledgment says completed", async () => {
-    const f = await fixture();
-    f.setStatus("running");
-    let settled = false;
-    const running = f.run().then((value) => {
-      settled = true;
-      return value;
+
+  it('replays across changed recovery text while stable task identity remains exact', async () => {
+    const dataDir = await dataDirectory('flows-node-recover-task-identity-');
+    const f = fixture();
+    const initial = { ...request(dataDir), taskIdentity: 'Implement the change',
+      result_schema: { type: 'object', required: ['summary'] } };
+    await runAgentRelayTask(initial, { runtime: f.runtime });
+    const recovered = await runAgentRelayTask({
+      ...initial,
+      task: `${initial.task}\n\nPrevious attempt (journaled):\n${JSON.stringify({
+        completion_reason: 'crashed', trajectory_tail: { note: 'retry' },
+      })}`,
+      attempt: 2,
+    }, { runtime: f.runtime });
+    expect(recovered.receipt.status).toBe('completed');
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
+
+    await expect(runAgentRelayTask({
+      ...initial, taskIdentity: 'A different authored task', attempt: 2,
+    }, { runtime: f.runtime })).rejects.toThrow('conflicts with its durable identity or input');
+    await expect(runAgentRelayTask({
+      ...initial, result_schema: { type: 'object', required: ['different'] }, attempt: 2,
+    }, { runtime: f.runtime })).rejects.toThrow('conflicts with its durable identity or input');
+  });
+
+  it('fails closed across an ambiguous pre-ack crash instead of spawning twice', async () => {
+    const dataDir = await dataDirectory('flows-node-ambiguous-');
+    const f = fixture();
+    f.spawn.mockImplementationOnce(async (_input, beforeDispatch) => {
+      await beforeDispatch();
+      throw new Error('connection dropped');
     });
-    await vi.waitFor(() => expect(f.reads).toBeGreaterThan(1));
-    expect(settled).toBe(false);
-    f.setStatus("completed");
-    expect((await running).output).toEqual({ answer: 42 });
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime })).rejects.toThrow('connection dropped');
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime })).rejects.toThrow('ambiguous pre-ack');
+    expect(f.spawn).toHaveBeenCalledTimes(1);
   });
-  it("reconciles an ambiguous POST exclusively by GET without issuing another POST", async () => {
-    const f = await fixture();
-    f.losePost();
-    expect((await f.run()).status).toBe("completed");
-    expect(f.posts()).toHaveLength(1);
-    expect(f.reads).toBe(1);
+
+  it('durably releases exact identity attached to a post-spawn verification failure', async () => {
+    const dataDir = await dataDirectory('flows-node-postspawn-failure-');
+    const f = fixture();
+    f.spawn.mockImplementationOnce(async (_input, beforeDispatch) => {
+      await beforeDispatch();
+      throw new NodeSpawnError('task delivery unconfirmed',
+        'spawn_task_unconfirmed', undefined, {
+        id: 'inv_spawn_1', nodeId: 'node_1', nodeName: 'desktop-1',
+        name: 'worker_1', agentId: 'agent_1',
+        });
+    });
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('task delivery unconfirmed');
+    expect(f.release).toHaveBeenCalledWith(expect.objectContaining({
+      receipt: expect.objectContaining({ agentId: 'agent_1', nodeName: 'desktop-1' }),
+    }));
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('task delivery unconfirmed');
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
   });
-  it("reopens the durable dispatch after interruption and reads the original task", async () => {
-    const f = await fixture();
-    f.setStatus("running");
-    const abort = new AbortController();
-    const running = f.run(abort.signal);
-    const rejection = expect(running).rejects.toThrow();
-    await vi.waitFor(() => expect(f.reads).toBeGreaterThan(0));
-    abort.abort(new Error("lease lost"));
-    await rejection;
-    f.setStatus("completed");
-    expect((await f.run()).status).toBe("completed");
-    expect(f.posts()).toHaveLength(1);
+
+  it('releases the exact confirmed agent before propagating cancellation', async () => {
+    const dataDir = await dataDirectory('flows-node-cancel-');
+    const f = fixture();
+    const controller = new AbortController();
+    f.spawn.mockImplementationOnce(async (input, beforeDispatch) => {
+      await beforeDispatch();
+      queueMicrotask(() => controller.abort(new Error('lease lost')));
+      return { id: 'inv_spawn_1', action: 'spawn' as const, status: 'completed' as const,
+        nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_1',
+        spawned: true as const, ready: true as const };
+    });
+    const order: string[] = [];
+    f.release.mockImplementationOnce(async () => {
+      order.push('release');
+      return { id: 'inv_release_1', action: 'release' as const,
+        status: 'completed' as const, spawned: false, ready: false, released: true };
+    });
+    try {
+      await runAgentRelayTask(request(dataDir), { runtime: f.runtime, signal: controller.signal });
+      throw new Error('expected cancellation');
+    } catch (error) {
+      expect(error).toMatchObject({ message: 'lease lost' });
+      order.push('rejected');
+    }
+    expect(order).toEqual(['release', 'rejected']);
+    expect(f.release).toHaveBeenCalledWith(expect.objectContaining({
+      receipt: expect.objectContaining({ agentId: 'agent_1', nodeName: 'desktop-1' }),
+    }));
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'task_cancelled' }),
+    });
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(f.status).not.toHaveBeenCalled();
   });
-  it("refuses changed caller, canonical endpoint, or input before another invocation", async () => {
-    const f = await fixture();
-    await f.run();
-    f.setCaller("replacement");
-    await expect(f.run()).rejects.toThrow(/durable caller/);
-    f.setCaller("caller");
-    f.request.task = "changed";
-    await expect(f.run()).rejects.toThrow(/durable caller/);
-    f.request.task = "return output";
-    await expect(
-      runAgentRelayTask(f.request, {
-        baseUrl: "https://other.example",
-        agentToken: "fixture-agent-token",
-        fetch: f.fetchMock as typeof fetch,
-      }),
-    ).rejects.toThrow(/durable caller/);
-    expect(f.posts()).toHaveLength(1);
+
+  it('refuses to extend the original durable execution deadline on redispatch', async () => {
+    const dataDir = await dataDirectory('flows-node-deadline-identity-');
+    const f = fixture();
+    const controller = new AbortController();
+    f.spawn.mockImplementationOnce(async (input, beforeDispatch) => {
+      await beforeDispatch();
+      queueMicrotask(() => controller.abort(new Error('worker stopped')));
+      return { id: 'inv_spawn_1', action: 'spawn' as const, status: 'completed' as const,
+        nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_1',
+        spawned: true as const, ready: true as const };
+    });
+    await expect(runAgentRelayTask({ ...request(dataDir), timeoutMs: 1_000 }, {
+      runtime: f.runtime, signal: controller.signal,
+    })).rejects.toThrow('worker stopped');
+    await expect(runAgentRelayTask({ ...request(dataDir), timeoutMs: 60_000 }, { runtime: f.runtime }))
+      .rejects.toThrow('conflicts with its durable identity or input');
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
   });
-  it("recovers an old terminal receipt without redispatch after its reconciliation deadline", async () => {
-    const f = await fixture();
-    await f.run();
-    const directory = join(f.request.dataDir, "relay-tasks");
-    const [name] = await readdir(directory);
-    const path = join(directory, name!);
-    const claim = JSON.parse(await readFile(path, "utf8"));
-    claim.startedAt = Date.now() - 2 * 86400000;
-    await writeFile(path, JSON.stringify(claim));
-    expect((await f.run()).status).toBe("completed");
-    expect(f.posts()).toHaveLength(1);
-  });
-  it("fails on corrupt durable state rather than discarding it and replaying", async () => {
-    const f = await fixture();
-    await f.run();
-    const directory = join(f.request.dataDir, "relay-tasks");
-    const [name] = await readdir(directory);
-    await writeFile(join(directory, name!), "{");
-    await expect(f.run()).rejects.toThrow();
-    expect(f.posts()).toHaveLength(1);
-  });
-  it("refuses before POST when the durable dispatch cannot be written", async () => {
-    const f = await fixture();
-    const file = join(f.request.dataDir, "not-a-directory");
-    await writeFile(file, "fixture");
-    f.request.dataDir = file;
-    await expect(f.run()).rejects.toThrow();
-    expect(f.posts()).toHaveLength(0);
-  });
-  it("preserves explicit terminal failure and scalar/array/null output", async () => {
-    const f = await fixture();
-    f.setStatus("failed");
-    expect((await f.run()).error).toBe("task_deadline_exceeded");
-    for (const output of [null, 42, "text", [1, 2]]) {
-      const next = await fixture();
-      next.setOutput(output);
-      expect((await next.run()).output).toEqual(output);
+
+  it('bounds a recovered spawn status lookup by the original deadline and releases exact identity', async () => {
+    vi.useFakeTimers();
+    try {
+      const dataDir = await dataDirectory('flows-node-status-stall-');
+      const f = fixture();
+      const bounded = { ...request(dataDir), timeoutMs: 1_000 };
+      await runAgentRelayTask(bounded, { runtime: f.runtime });
+      const [entry] = await readNodeSpawnClaims(dataDir);
+      const { result: _result, release: _release, ...spawnOnly } = entry!.claim;
+      await recordNodeSpawn(entry!.path, spawnOnly);
+      f.status.mockImplementationOnce(() => new Promise(() => undefined));
+      const pending = expect(runAgentRelayTask(bounded, { runtime: f.runtime }))
+        .rejects.toThrow();
+      await vi.waitFor(() => expect(f.status).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(1_001);
+      await pending;
+      expect(f.release).toHaveBeenCalledTimes(2);
+      const [recovered] = await readNodeSpawnClaims(dataDir);
+      expect(recovered!.claim.release).toBeDefined();
+    } finally {
+      vi.useRealTimers();
     }
   });
-  it("rejects a changed accepted generation instead of accepting a stale terminal receipt", async () => {
-    const f = await fixture();
-    f.setStatus("running");
-    const running = f.run();
-    const rejection = expect(running).rejects.toThrow(/generation/);
-    await vi.waitFor(() => expect(f.reads).toBeGreaterThan(0));
-    f.setGeneration("replacement");
-    f.setStatus("completed");
-    await rejection;
-  });
-  it("rejects wrong correlation and masks arbitrary HTTP error bodies", async () => {
-    const f = await fixture();
-    await expect(
-      runAgentRelayTask(f.request, {
-        agentToken: "fixture-token",
-        fetch: vi.fn(
-          async () => new Response("secret-response-body", { status: 401 }),
-        ) as typeof fetch,
-      }),
-    ).rejects.toThrow("HTTP 401");
-    const changed = vi.fn(
-      async (url: string | URL | Request, init?: RequestInit) => {
-        const response = await f.fetchMock(url, init);
-        const body = (await response.json()) as {
-          data: { task_execution: { dispatch_id: string } };
-        };
-        if (String(url).includes("/invocations/"))
-          body.data.task_execution.dispatch_id = "wrong";
-        return new Response(JSON.stringify(body), { status: 200 });
-      },
-    );
-    await expect(
-      runAgentRelayTask(f.request, {
-        agentToken: "fixture-agent-token",
-        fetch: changed as typeof fetch,
-      }),
-    ).rejects.toThrow(/correlation/);
-  });
-});
 
-import { EventEmitter } from "node:events";
-import type { JournalClient } from "../src/journal-client.js";
-import type { StepDispatchEvent } from "../src/protocol.js";
-import { AgentWorker } from "../src/worker.js";
+  it('returns promptly from a cancelled confirmation and cleans up its late exact receipt', async () => {
+    const dataDir = await dataDirectory('flows-node-confirm-cancel-');
+    const f = fixture();
+    const controller = new AbortController();
+    let confirm!: (receipt: NodeSpawnReceipt) => void;
+    f.spawn.mockImplementationOnce(async (input, beforeDispatch) => {
+      await beforeDispatch();
+      return new Promise<NodeSpawnReceipt>(resolve => {
+      confirm = receipt => resolve({ ...receipt, name: input.name });
+      });
+    });
+    const pending = runAgentRelayTask(request(dataDir), { runtime: f.runtime, signal: controller.signal });
+    await vi.waitFor(() => expect(f.spawn).toHaveBeenCalledOnce());
+    controller.abort(new Error('lease lost during confirmation'));
+    await expect(pending).rejects.toThrow('lease lost during confirmation');
+    expect(f.release).not.toHaveBeenCalled();
+    confirm({ id: 'inv_spawn_1', action: 'spawn', status: 'completed', nodeId: 'node_1',
+      nodeName: 'desktop-1', name: 'placeholder', agentId: 'agent_1', spawned: true, ready: true });
+    await vi.waitFor(() => expect(f.release).toHaveBeenCalledOnce());
+  });
 
-async function workerFixture(f: Awaited<ReturnType<typeof fixture>>, runRoot?: string) {
-  vi.stubEnv("RELAY_AGENT_TOKEN", "fixture-agent-token");
-  vi.stubEnv("RELAY_BASE_URL", "https://cast.agentrelay.com");
-  vi.stubGlobal("fetch", f.fetchMock);
-  const client = Object.assign(new EventEmitter(), {
-    workerAttach: vi.fn(async () => ({})),
-    stepHeartbeat: vi.fn(async () => ({
-      lease_deadline_ms: Date.now() + 30000,
-    })),
-    stepComplete: vi.fn(async (..._args: unknown[]) => ({})),
+  it('rechecks cancellation after durable claiming immediately before spawn dispatch', async () => {
+    const dataDir = await dataDirectory('flows-node-prespawn-cancel-');
+    const f = fixture();
+    const controller = new AbortController();
+    const pending = runAgentRelayTask(request(dataDir), { runtime: f.runtime, signal: controller.signal });
+    queueMicrotask(() => controller.abort(new Error('lease lost before dispatch')));
+    await expect(pending).rejects.toThrow('lease lost before dispatch');
+    expect(f.spawn).not.toHaveBeenCalled();
   });
-  const worker = new AgentWorker(client as unknown as JournalClient, {
-    workerId: "fixture-worker",
-    pins: {},
-    dataDir: f.request.dataDir,
-    ...(runRoot === undefined ? {} : { runRoot }),
-  });
-  const errors: unknown[] = [];
-  worker.on("error", (error) => errors.push(error));
-  await worker.attach();
-  const dispatch: StepDispatchEvent = {
-    run_id: "run",
-    step_id: "step",
-    attempt: 1,
-    step_type: "agent",
-    spec: {
-      cli: "claude",
-      instruction: "return output",
-      transport: "relay",
-      model: "codex-medium",
-      verification: { json_schema: { type: "array" } },
-    },
-    idempotency_key: "journal-key",
-    lease_id: "lease",
-    lease_deadline_ms: Date.now() + 30000,
-    pins: {},
-    wake_context: { triggering_event: { type: "fixture" } },
-  };
-  return { client, worker, errors, dispatch };
-}
 
-describe("Relay completion at the journal boundary", () => {
-  it("does not complete at readiness and journals exact output, receipt, and priced accounting", async () => {
-    const f = await fixture();
-    f.setStatus("running");
-    f.setOutput([1, 2]);
-    const w = await workerFixture(f);
-    w.client.emit("step.dispatch", w.dispatch);
-    await vi.waitFor(() => expect(f.reads).toBe(1));
-    expect(w.client.stepComplete).not.toHaveBeenCalled();
-    f.setStatus("completed");
-    await w.worker.close();
-    expect(w.errors).toEqual([]);
-    expect(w.client.stepComplete).toHaveBeenCalledTimes(1);
-    expect(w.client.stepComplete.mock.calls[0]).toEqual([
-      "run",
-      "step",
-      1,
-      "journal-key",
-      "success",
-      expect.objectContaining({
-        output: [1, 2],
-        usage: { tokens_in: 7, tokens_out: 3, dollars: "0.000038" },
-        trajectory_tail: {
-          relay_task: expect.objectContaining({
-            invocation_id: f.invocationId,
-            status: "completed",
-          }),
-        },
-      }),
-    ]);
-    const input = JSON.parse(String(f.posts()[0]!.init!.body)).input;
-    expect(input.task).toContain("Wake context (journaled)");
-    expect(input.task).toContain("final=true");
-    expect(input.result_schema).toEqual({ type: "array" });
+  it('acks the inbox delivery only after stepComplete has entered the journal', async () => {
+    const dataDir = await dataDirectory('flows-node-journal-');
+    const f = fixture();
+    const order: string[] = [];
+    f.ack.mockImplementation(async () => { order.push('ack'); return {}; });
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+      stepComplete: vi.fn(async () => { expect(f.ack).not.toHaveBeenCalled(); order.push('journal'); return {}; }),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_1', pins: {}, dataDir, nodeSpawnRuntime: f.runtime,
+    });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    const dispatch: StepDispatchEvent = {
+      run_id: 'run_1', step_id: 'edit', attempt: 1, step_type: 'agent',
+      spec: { cli: 'codex', instruction: 'Implement the change', transport: 'relay', model: 'codex-medium' },
+      idempotency_key: 'dispatch_1234567890', lease_id: 'lease_1',
+      lease_deadline_ms: Date.now() + 30_000, pins: {},
+    };
+    client.emit('step.dispatch', dispatch);
+    await worker.close();
+    expect(errors).toEqual([]);
+    expect(order).toEqual(['journal', 'ack']);
+    expect(client.stepComplete).toHaveBeenCalledWith('run_1', 'edit', 1, 'dispatch_1234567890', 'success',
+      expect.objectContaining({ output: { summary: 'done' }, trajectory_tail: {
+        relay_task: expect.objectContaining({ invocation_id: 'inv_spawn_1', status: 'completed' }),
+      } }));
   });
-  it("does not forward the local run root as worker_cwd to a remote relay worker", async () => {
-    const f = await fixture();
-    const runRoot = await mkdtemp(join(tmpdir(), "flows-relay-runroot-"));
-    directories.push(runRoot);
-    const w = await workerFixture(f, runRoot);
-    w.client.emit("step.dispatch", w.dispatch);
-    await vi.waitFor(() => expect(f.posts()).toHaveLength(1));
-    await w.worker.close();
-    expect(w.errors).toEqual([]);
-    const input = JSON.parse(String(f.posts()[0]!.init!.body)).input;
-    expect(input.worker_cwd).toBeUndefined();
-  });
-  it("journals terminal task failure as worker_error with its explicit reason", async () => {
-    const f = await fixture();
-    f.setStatus("failed");
-    const w = await workerFixture(f);
-    w.client.emit("step.dispatch", w.dispatch);
-    await w.worker.close();
-    expect(w.errors).toEqual([]);
-    expect(w.client.stepComplete.mock.calls[0]![4]).toBe("worker_error");
-    expect(JSON.stringify(w.client.stepComplete.mock.calls[0])).toContain(
-      "task_deadline_exceeded",
-    );
-  });
-  it("aborts polling on rejected renewal and never writes a stale completion", async () => {
-    const f = await fixture();
-    f.setStatus("running");
-    const w = await workerFixture(f);
-    w.client.stepHeartbeat
-      // 3s lease, so worker-lease.ts renews at ~1s: after the durable claim's
-      // three fsyncs (agent-relay-state.ts `claimRelayTask`) and the POST,
-      // while `runAgentRelayTask` sits in its 1s poll delay. The old 150ms
-      // lease renewed at ~50ms and raced those fsyncs, which a loaded CI
-      // runner loses. `mockImplementationOnce` also reads the clock at the
-      // heartbeat rather than at mock setup, so the window is the stated one.
-      .mockImplementationOnce(async () => ({ lease_deadline_ms: Date.now() + 3_000 }))
-      .mockRejectedValueOnce(new Error("lease replaced"));
-    w.client.emit("step.dispatch", w.dispatch);
-    // The POST is the precondition for the abort being mid-poll, not a
-    // side effect of the timing: wait for it rather than assuming it landed.
-    await vi.waitFor(() => { expect(f.posts()).toHaveLength(1); });
-    await w.worker.close();
-    expect(w.client.stepComplete).not.toHaveBeenCalled();
-    expect(String(w.errors[0])).toContain("lease replaced");
-    expect(f.posts()).toHaveLength(1);
-  });
-});
 
-import { readFile } from "node:fs/promises";
-it("matches exact HTTP fixtures generated by Relaycast #436, including its deterministic invocation ID", async () => {
-  const wire = JSON.parse(
-    await readFile(
-      new URL("./fixtures/relay-task/relaycast-436.json", import.meta.url),
-      "utf8",
-    ),
-  );
-  const f = await fixture();
-  let reads = 0;
-  const fetchMock = vi.fn(
-    async (url: string | URL | Request, init?: RequestInit) => {
-      if (String(url).endsWith("/v1/agent"))
-        return new Response(JSON.stringify(wire.identity), { status: 200 });
-      if (String(url).endsWith("/invoke")) {
-        expect(JSON.parse(String(init?.body))).toEqual({ input: wire.input });
-        return new Response(JSON.stringify(wire.ack), { status: 201 });
-      }
-      expect(String(url)).toBe(
-        `https://cast.agentrelay.com/v1/actions/task.run/invocations/${wire.ack.data.invocation_id}`,
-      );
-      return new Response(
-        JSON.stringify(
-          [wire.dispatched, wire.running, wire.completed][reads++],
-        ),
-        { status: 200 },
-      );
-    },
-  );
-  const result = await runAgentRelayTask(f.request, {
-    agentToken: "fixture-token",
-    fetch: fetchMock as typeof fetch,
-    pollMs: 1,
+  it('keeps a result unacked and durably retries exact cleanup when release is unconfirmed', async () => {
+    const dataDir = await dataDirectory('flows-node-cleanup-');
+    const f = fixture();
+    f.release.mockRejectedValueOnce(new Error('release response lost'));
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toMatchObject({ cleanupPending: true });
+    expect(f.ack).not.toHaveBeenCalled();
+    const recovered = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledTimes(2);
+    expect(recovered.receipt.status).toBe('completed');
   });
-  expect(result.output).toEqual(wire.completed.data.output);
-  expect(result.task_execution).toEqual(wire.completed.data.task_execution);
-  expect(reads).toBe(3);
+
+  it('bounds a stalled exact release and retries it from durable cleanup state', async () => {
+    vi.useFakeTimers();
+    try {
+      const dataDir = await dataDirectory('flows-node-cleanup-stall-');
+      const f = fixture();
+      f.release.mockImplementationOnce(() => new Promise(() => undefined));
+      const task = runAgentRelayTask({ ...request(dataDir), timeoutMs: 60_000 }, { runtime: f.runtime });
+      const rejection = expect(task).rejects.toMatchObject({ cleanupPending: true });
+      await vi.waitFor(() => expect(f.release).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(15_001);
+      await rejection;
+      expect(f.ack).not.toHaveBeenCalled();
+      const claims = await readNodeSpawnClaims(dataDir);
+      expect(claims[0]!.claim.cleanupPending).toMatchObject({
+        attempts: 1,
+        lastError: expect.stringContaining('independent deadline'),
+      });
+      const recovered = await runAgentRelayTask({ ...request(dataDir), timeoutMs: 60_000 }, { runtime: f.runtime });
+      expect(f.release).toHaveBeenCalledTimes(2);
+      expect(recovered.receipt.status).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves failed cleanup nonterminal so a worker redispatch can finish exact release', async () => {
+    const dataDir = await dataDirectory('flows-node-worker-cleanup-');
+    const f = fixture();
+    f.release.mockRejectedValueOnce(new Error('release response lost'));
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+      stepComplete: vi.fn(async () => ({})),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_1', pins: {}, dataDir, nodeSpawnRuntime: f.runtime,
+    });
+    await worker.attach();
+    const dispatch = (attempt: number): StepDispatchEvent => ({
+      run_id: 'run_1', step_id: 'edit', attempt, step_type: 'agent',
+      spec: { cli: 'codex', instruction: 'Implement the change', transport: 'relay' },
+      idempotency_key: 'dispatch_1234567890', lease_id: `lease_${attempt}`,
+      lease_deadline_ms: Date.now() + 30_000, pins: {},
+    });
+    const failed = new Promise<unknown>(resolve => worker.once('error', resolve));
+    client.emit('step.dispatch', dispatch(1));
+    const failure = await failed;
+    expect(failure).toBeInstanceOf(AgentRelayTransportError);
+    expect(failure).toMatchObject({ cleanupPending: true });
+    expect(client.stepComplete).not.toHaveBeenCalled();
+    expect(f.ack).not.toHaveBeenCalled();
+    client.emit('step.dispatch', dispatch(2));
+    await vi.waitFor(() => expect(client.stepComplete).toHaveBeenCalledOnce());
+    await worker.close();
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledTimes(2);
+    expect(client.stepComplete).toHaveBeenCalledWith('run_1', 'edit', 2,
+      'dispatch_1234567890', 'success', expect.any(Object));
+    expect(f.ack).toHaveBeenCalledOnce();
+  });
+
+  it('fails immediately when a prior error already released an agent without a result', async () => {
+    const dataDir = await dataDirectory('flows-node-released-without-result-');
+    const f = fixture();
+    f.runtime.inbox.inbox.subscribe = async function* () {};
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('inbox ended');
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('inbox ended');
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(f.status).not.toHaveBeenCalled();
+  });
+
+  it('retries pending cleanup before failing a result-less spawn recovery', async () => {
+    const dataDir = await dataDirectory('flows-node-resultless-cleanup-');
+    const f = fixture();
+    f.runtime.inbox.inbox.subscribe = async function* () {};
+    f.release.mockRejectedValueOnce(new Error('release response lost'));
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toMatchObject({ cleanupPending: true });
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('inbox ended');
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledTimes(2);
+    expect(f.status).not.toHaveBeenCalled();
+  });
+
+  it('releases a durably failed spawn before any status or inbox recovery', async () => {
+    const dataDir = await dataDirectory('flows-node-failure-before-cleanup-');
+    const f = fixture();
+    await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
+    const [entry] = await readNodeSpawnClaims(dataDir);
+    const { result: _result, release: _release, cleanupPending: _pending, ...spawned } = entry!.claim;
+    await recordNodeSpawn(entry!.path, { ...spawned,
+      failure: { code: 'spawn_cancelled', message: 'worker stopped after spawn' } });
+    f.release.mockClear();
+    f.status.mockClear();
+    f.runtime.inbox.inbox.subscribe = async function* () { throw new Error('inbox must not be read'); };
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('worker stopped after spawn');
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(f.status).not.toHaveBeenCalled();
+  });
+
+  it('keeps the original execution deadline but never expires a durably observed result', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const started = new Date('2026-11-07T00:00:00.000Z');
+      vi.setSystemTime(started);
+      const dataDir = await dataDirectory('flows-node-deadline-');
+      const f = fixture();
+      const bounded = { ...request(dataDir), timeoutMs: 1_000 };
+      await runAgentRelayTask(bounded, { runtime: f.runtime });
+      vi.setSystemTime(started.getTime() + 1_001);
+      await expect(runAgentRelayTask(bounded, { runtime: f.runtime })).resolves.toBeDefined();
+      expect(f.status).not.toHaveBeenCalled();
+      vi.setSystemTime(started.getTime() + 31_001);
+      f.runtime.inbox.inbox.subscribe = async function* () { throw new Error('must use durable envelope'); };
+      await expect(runAgentRelayTask(bounded, { runtime: f.runtime })).resolves.toBeDefined();
+      expect(f.status).not.toHaveBeenCalled();
+      expect(f.spawn).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves a timely durable result when exact release crosses the task deadline', async () => {
+    const taskDeadline = new AbortController();
+    const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds =>
+      milliseconds < 2_000 ? taskDeadline.signal : nativeTimeout(milliseconds));
+    try {
+      const dataDir = await dataDirectory('flows-node-result-before-deadline-');
+      const f = fixture();
+      let confirmRelease!: (receipt: Awaited<ReturnType<NodeSpawnPort['release']>>) => void;
+      f.release.mockImplementationOnce(() => new Promise(resolve => { confirmRelease = resolve; }));
+      const task = runAgentRelayTask({ ...request(dataDir), timeoutMs: 1_000 }, { runtime: f.runtime });
+      await vi.waitFor(() => expect(f.release).toHaveBeenCalledOnce());
+
+      taskDeadline.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+      confirmRelease({ id: 'inv_release_after_deadline', action: 'release', status: 'completed',
+        spawned: false, ready: false, released: true });
+
+      const completed = await task;
+      expect(completed.receipt).toMatchObject({
+        status: 'completed',
+        task_execution: { delivery_id: 'delivery_1', release_invocation_id: 'inv_release_after_deadline' },
+      });
+      const [persisted] = await readNodeSpawnClaims(dataDir);
+      expect(persisted!.claim.result).toMatchObject({ inboxItemId: 'delivery_1', messageId: 'message_1' });
+      expect(persisted!.claim.release).toMatchObject({ invocationId: 'inv_release_after_deadline' });
+      expect(f.ack).not.toHaveBeenCalled();
+      await completed.delivery.prepareSettlement!({ attempt: 1, completionReason: 'success' });
+      await completed.delivery.ack();
+      expect(f.ack).toHaveBeenCalledOnce();
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
+  it('journals a failed agent envelope before acknowledging its delivery', async () => {
+    const dataDir = await dataDirectory('flows-node-failed-result-');
+    const f = fixture('failed');
+    const order: string[] = [];
+    f.ack.mockImplementation(async () => { order.push('ack'); return {}; });
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+      stepComplete: vi.fn(async () => { expect(f.ack).not.toHaveBeenCalled(); order.push('journal'); return {}; }),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_1', pins: {}, dataDir, nodeSpawnRuntime: f.runtime,
+    });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    client.emit('step.dispatch', {
+      run_id: 'run_1', step_id: 'edit', attempt: 1, step_type: 'agent',
+      spec: { cli: 'codex', instruction: 'Implement the change', transport: 'relay' },
+      idempotency_key: 'dispatch_1234567890', lease_id: 'lease_1',
+      lease_deadline_ms: Date.now() + 30_000, pins: {},
+    } satisfies StepDispatchEvent);
+    await worker.close();
+    expect(errors).toEqual([]);
+    expect(order).toEqual(['journal', 'ack']);
+    expect(client.stepComplete).toHaveBeenCalledWith('run_1', 'edit', 1, 'dispatch_1234567890',
+      expect.not.stringMatching(/^success$/), expect.objectContaining({
+        trajectory_tail: { relay_task: expect.objectContaining({ status: 'failed', error: 'agent reported failure' }) },
+      }));
+  });
+
+  it('journals a malformed exact-sender envelope before dead-lettering its delivery', async () => {
+    const dataDir = await dataDirectory('flows-node-malformed-result-');
+    const f = fixture();
+    f.runtime.inbox.inbox.subscribe = async function* () {
+      const name = (await f.spawn.mock.results[0]!.value).name;
+      yield { id: 'delivery_1', message: { id: 'message_1',
+        from: { id: 'agent_1', name },
+        text: NODE_RESULT_PREFIX + '{bad',
+      } };
+    };
+    const order: string[] = [];
+    f.fail.mockImplementation(async () => { order.push('fail'); return {}; });
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+      stepComplete: vi.fn(async () => { expect(f.fail).not.toHaveBeenCalled(); order.push('journal'); return {}; }),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_1', pins: {}, dataDir, nodeSpawnRuntime: f.runtime,
+    });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    client.emit('step.dispatch', {
+      run_id: 'run_1', step_id: 'edit', attempt: 1, step_type: 'agent',
+      spec: { cli: 'codex', instruction: 'Implement the change', transport: 'relay' },
+      idempotency_key: 'dispatch_1234567890', lease_id: 'lease_1',
+      lease_deadline_ms: Date.now() + 30_000, pins: {},
+    } satisfies StepDispatchEvent);
+    await worker.close();
+    expect(errors).toEqual([]);
+    expect(order).toEqual(['journal', 'fail']);
+    expect(f.ack).not.toHaveBeenCalled();
+    expect(f.fail).toHaveBeenCalledWith(expect.objectContaining({ inboxItemId: 'delivery_1', retry: false }));
+  });
 });

@@ -1,5 +1,4 @@
 import { brokerInstruction } from './communication/broker-spec.js';
-import { BrokerSessions } from './communication/broker-worker.js';
 import { communicationInstruction } from './communication/spec.js';
 import { workerSpend } from './worker-spend.js';
 import { reportedCost } from './reported-cost.js';
@@ -13,7 +12,7 @@ import { agentCompletionReason } from './cli-transport-evidence.js';
 import { agentStepCwd } from './agent-cwd.js';
 import { resolveCliModel } from './cli-adapter.js';
 import { withWorkerLease } from './worker-lease.js';
-import { workerInstruction } from './worker-input.js';
+import { workerInstruction, workerInstructionIdentity } from './worker-input.js';
 import { helperCall } from './yaml-helpers.js';
 import { completeHelperDispatch } from './yaml-helper-effect.js';
 import {
@@ -23,6 +22,11 @@ import {
   redactText,
   type TranscriptDigest,
 } from './agent-transcript.js';
+import { createNodeSpawnRuntime, createNodeSpawnRuntimeOwner, explicitServiceCallerFile,
+  mergeNodeSpawnEnvironment, type NodeSpawnRuntime, type NodeSpawnRuntimeOwner } from './node-spawn-runtime.js';
+import { nodeSpawnCleanupRequired } from './node-spawn-cleanup.js';
+import { nodeSpawnClaimBelongsToRuntime, reconcileNodeResultSettlements } from './node-spawn-settlement.js';
+import { readNodeSpawnClaims } from './node-spawn-state.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
@@ -43,6 +47,10 @@ export interface AgentWorkerOptions {
   runRoot?: string;
   /** Source environment; each provider CLI receives only its allowlist and step grants. */
   environment?: NodeJS.ProcessEnv;
+  /** Optional approved node-spawn runtime; otherwise relay steps use the agent-token fleet client. */
+  nodeSpawnRuntime?: NodeSpawnRuntime;
+  /** Explicit Desktop schema-v2 handoff; never discovered from an app-data directory. */
+  serviceCallerFile?: string;
 }
 
 /**
@@ -62,17 +70,29 @@ export interface AgentWorkerOptions {
  * shutdown.
  */
 export class AgentWorker extends EventEmitter {
-  private readonly brokerSessions: BrokerSessions;
   private attached = false;
   private closing = false;
+  private closePromise?: Promise<void>;
+  private settlementTimer?: NodeJS.Timeout;
+  private settlementDrain?: Promise<void>;
+  private settlementReconcile?: Promise<void>;
+  private readonly localDesktopAuthority: boolean;
   private readonly inFlight: Set<Promise<void>> = new Set();
+  private readonly nodeSpawnRuntimeOwner: NodeSpawnRuntimeOwner;
 
   constructor(
     private readonly client: JournalClient,
     private readonly options: AgentWorkerOptions,
   ) {
     super();
-    this.brokerSessions = new BrokerSessions(options.runRoot, options.environment);
+    const runtimeEnvironment = mergeNodeSpawnEnvironment(options.environment, options.serviceCallerFile);
+    this.localDesktopAuthority = options.nodeSpawnRuntime === undefined
+      ? explicitServiceCallerFile(runtimeEnvironment) !== undefined
+      : options.nodeSpawnRuntime.authority === 'desktop';
+    this.nodeSpawnRuntimeOwner = createNodeSpawnRuntimeOwner(
+      options.nodeSpawnRuntime,
+      signal => createNodeSpawnRuntime(runtimeEnvironment, { signal }),
+    );
   }
 
   async attach(): Promise<void> {
@@ -80,6 +100,14 @@ export class AgentWorker extends EventEmitter {
     if (this.closing) throw new Error('agent worker: cannot attach a closed worker (construct a new one)');
     this.client.on('step.dispatch', this.onDispatch);
     try {
+      // An explicit Desktop handoff is fully checkable before this worker is
+      // admitted. Bind and validate it now so a missing, expired or mismatched
+      // caller cannot let earlier deterministic steps run and fail only when
+      // the first Relay dispatch eventually asks for the lazy runtime.
+      // Remote fleet authority stays lazy: a direct-only local worker does not
+      // need to contact Relay merely because RELAY_AGENT_TOKEN is present.
+      if (this.localDesktopAuthority) await this.nodeSpawnRuntimeOwner.get();
+      await this.reconcileRelaySettlementsAfterDrain();
       await this.client.workerAttach(
         this.options.workerId,
         ['agent'],
@@ -90,40 +118,101 @@ export class AgentWorker extends EventEmitter {
       this.attached = true;
     } catch (error) {
       this.client.off('step.dispatch', this.onDispatch);
+      if (this.settlementTimer !== undefined) {
+        clearTimeout(this.settlementTimer);
+        this.settlementTimer = undefined;
+      }
+      // An attach attempt can create the lazy Relay runtime while reconciling
+      // a prior inbox settlement. Once attachment fails, this worker is not
+      // reusable: close that owned connection before the caller loses the
+      // worker instance.
+      this.closing = true;
+      try {
+        const close = this.nodeSpawnRuntimeOwner.close();
+        this.closePromise = close;
+        await close;
+      } catch (closeError) {
+        throw new AggregateError([error, closeError],
+          'Agent worker could not attach or close its node runtime');
+      }
       throw error;
     }
   }
 
   /**
    * Async, drain-aware shutdown. Awaits every dispatch in-flight; ignores
-   * dispatches that arrive after close() begins. Idempotent.
+   * dispatches that arrive after close() begins. Concurrent and later callers
+   * receive the same promise, so none can observe shutdown before the drain.
    *
    * A prior synchronous close() did NOT drain, so a caller shutting
    * mid-dispatch could silently lose an in-flight step's stepComplete
    * journal write when the socket was immediately shut. This closes
    * that hole.
    */
-  async close(): Promise<void> {
-    if (this.closing) return;
+  close(): Promise<void> {
+    this.closePromise ??= this.closeOnce();
+    return this.closePromise;
+  }
+
+  private async closeOnce(): Promise<void> {
     this.closing = true;
     this.client.off('step.dispatch', this.onDispatch);
     const pending = Array.from(this.inFlight);
     if (pending.length > 0) {
       await Promise.allSettled(pending);
     }
-    await this.brokerSessions.close();
-    this.attached = false;
+    if (this.settlementTimer !== undefined) {
+      clearTimeout(this.settlementTimer);
+      this.settlementTimer = undefined;
+    }
+    let settlementError: unknown;
+    try {
+      await this.reconcileRelaySettlementsAfterDrain();
+    } catch (error) {
+      settlementError = error;
+    }
+    try {
+      await this.nodeSpawnRuntimeOwner.close();
+    } catch (closeError) {
+      if (settlementError !== undefined) {
+        throw new AggregateError([settlementError, closeError],
+          'Agent worker could not reconcile relay settlement or close its node runtime');
+      }
+      throw closeError;
+    } finally {
+      this.attached = false;
+    }
+    if (settlementError !== undefined) throw settlementError;
   }
 
   private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
     if (this.closing) return;
     if (dispatch.step_type !== 'agent') return;
-    const running: Promise<void> = this.execute(dispatch).catch((error: unknown) => {
+    const running: Promise<void> = this.executeAfterSettlementDrain(dispatch).catch((error: unknown) => {
       this.emit('error', error, dispatch);
     });
     this.inFlight.add(running);
-    void running.finally(() => { this.inFlight.delete(running); });
+    void running.finally(() => {
+      this.inFlight.delete(running);
+      // A task's own ack settles its durable outbox entry after stepComplete.
+      // Reconcile only after the dispatch drain: scanning while another relay
+      // task is between its journal append and ack can race that task's own
+      // settlement and issue the same inbox operation twice.
+      if (this.inFlight.size === 0) {
+        void this.reconcileRelaySettlementsAfterDrain().catch(error => this.emit('error', error));
+      }
+    });
   };
+
+  private async executeAfterSettlementDrain(dispatch: StepDispatchEvent): Promise<void> {
+    // A dispatch that arrives after a drain can race the drain's asynchronous
+    // claim scan. Keep it in the drain count, but do not let it prepare or
+    // settle a new delivery until the existing scan has finished.
+    while (this.settlementDrain !== undefined) {
+      await this.settlementDrain;
+    }
+    await this.execute(dispatch);
+  }
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<ResolvedKernelAgentStep>;
@@ -135,16 +224,14 @@ export class AgentWorker extends EventEmitter {
     }
     const broker = brokerInstruction(spec.instruction);
     if (broker) {
-      if (!this.options.dataDir) throw new Error('Broker agents require a worker data directory');
-      await this.brokerSessions.complete(this.client, dispatch, broker, this.options.dataDir);
+      await this.retiredNodeSession(dispatch,
+        'transport: broker was removed with the Relay broker. Use transport: relay for one-shot fleet execution; retained local sessions require the pending Desktop service-caller contract.');
       return;
     }
     const communication = communicationInstruction(spec.instruction);
     if (communication) {
-      if (!this.options.dataDir) throw new Error('Agent communication requires a worker data directory');
-      const { completeCommunicationDispatch } = await import('./communication/worker.js');
-      await completeCommunicationDispatch(this.client, dispatch, communication, this.options.dataDir,
-        this.options.runRoot, this.options.environment);
+      await this.retiredNodeSession(dispatch,
+        'Agent communication is unavailable without the retired broker/PTy path. Native node-spawn communication remains fail-closed until an authorized local service caller exists.');
       return;
     }
     let humanIntervention = false;
@@ -155,23 +242,35 @@ export class AgentWorker extends EventEmitter {
     // the agent's filesystem. A refusal completes the step the way a missing
     // CLI does — journaled as `worker_error` with the reason — rather than
     // spawning into a directory nobody established is inside the run root.
-    const cwd = agentStepCwd(spec, dispatch.step_id, this.options.runRoot);
+    const localDesktopRelay = spec.transport === 'relay' && this.localDesktopAuthority;
+    // An adapter default is useful for readiness, pricing and direct CLI
+    // execution, but is not an authored placement override. Relay harnesses
+    // select their own default when the journaled step omitted `model`.
+    const executionModel = spec.transport === 'relay' ? spec.model : effectiveModel;
+    const cwd = agentStepCwd(localDesktopRelay ? { ...spec, transport: 'direct' } : spec,
+      dispatch.step_id, this.options.runRoot);
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       'refusal' in cwd
         ? Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: cwd.refusal })
         : typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-          ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
+          ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, executionModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
             dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
             onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
-          }, cwd.directory ?? (spec.transport === 'relay' ? undefined : this.options.runRoot),
+          }, cwd.directory ?? (localDesktopRelay
+            ? (this.options.runRoot ?? process.cwd())
+            : (spec.transport === 'relay' ? undefined : this.options.runRoot)),
             spec.transport === 'relay' ? 'relay' : 'direct',
             { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
-              dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema },
+              attempt: dispatch.attempt, taskIdentity: workerInstructionIdentity(spec.instruction, dispatch),
+              dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema,
+              nodeSpawnRuntime: this.options.nodeSpawnRuntime,
+              nodeSpawnRuntimeProvider: signal => this.nodeSpawnRuntimeOwner.get(signal),
+              nodeSpawnCleanupPending: () => this.scheduleSettlementReconcile() },
             this.options.environment, spec.cli_identity, spec.timeout_ms, spec.resume, spec.secrets,
             this.client.supportsFeature?.('step_secret_scoping') ?? true)
           : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
-    const { result, usage } = workerSpend(completed, effectiveModel);
-    const cost = reportedCost(completed, effectiveModel);
+    const { result, usage } = workerSpend(completed, executionModel);
+    const cost = reportedCost(completed, executionModel);
     const completionReason = agentCompletionReason(result);
 
     // Output shape: if the CLI's stdout parses as JSON, promote THAT
@@ -200,7 +299,7 @@ export class AgentWorker extends EventEmitter {
     // `transcript` is not part of the wrapper either: it is evidence about the
     // attempt, journaled in `trajectory_tail` below on success and failure
     // alike, where the kernel already accepts and bounds it (16 KiB).
-    const { transcript, transport, ...rawWrapper } = result;
+    const { transcript, transport, relay_delivery: relayDelivery, ...rawWrapper } = result;
     // `stderr_tail` is evidence, not authored output. Redact and bound it
     // before it reaches either the worker-failure render or the journal --
     // against the environment the CLI ran with as well as this host's, since a
@@ -221,6 +320,7 @@ export class AgentWorker extends EventEmitter {
       ...(transport === undefined ? {} : { transport }),
     };
 
+    await relayDelivery?.prepareSettlement?.({ attempt: dispatch.attempt, completionReason });
     await this.client.stepComplete(
       dispatch.run_id,
       dispatch.step_id,
@@ -237,6 +337,83 @@ export class AgentWorker extends EventEmitter {
         end_pins: completionReason === 'timeout'
           ? deadlineEndPins(dispatch.pins, result.workspace_stamp)
           : dispatch.pins,
+      },
+    );
+    // Relay delivery is transport state, not execution truth. Only settle it
+    // after the journal has accepted the attempt's terminal fact.
+    await relayDelivery?.ack();
+  }
+
+  private reconcileRelaySettlementsAfterDrain(): Promise<void> {
+    if (this.settlementDrain !== undefined) return this.settlementDrain;
+    const generation = Array.from(this.inFlight);
+    const running = (async () => {
+      if (generation.length > 0) await Promise.allSettled(generation);
+      await this.reconcileRelaySettlements();
+    })();
+    this.settlementDrain = running;
+    void running.finally(() => {
+      if (this.settlementDrain === running) this.settlementDrain = undefined;
+    }).catch(() => undefined);
+    return running;
+  }
+
+  private async reconcileRelaySettlements(): Promise<void> {
+    if (this.settlementReconcile !== undefined) return this.settlementReconcile;
+    const running = this.reconcileRelaySettlementsOnce();
+    this.settlementReconcile = running;
+    void running.finally(() => {
+      if (this.settlementReconcile === running) this.settlementReconcile = undefined;
+    }).catch(() => undefined);
+    return running;
+  }
+
+  private async reconcileRelaySettlementsOnce(): Promise<void> {
+    if (this.options.dataDir === undefined || (this.closing && !this.attached)) return;
+    // Durable claims are not authority. A direct-only worker must not read
+    // ambient credentials or contact Relay merely because another publisher
+    // left state in the shared data directory. Explicit Desktop admission or
+    // a real Relay dispatch establishes the only runtime this worker may use.
+    const runtime = this.nodeSpawnRuntimeOwner.peek();
+    if (runtime === undefined) return;
+    const claims = await readNodeSpawnClaims(this.options.dataDir);
+    const hasPending = claims.some(entry => nodeSpawnClaimBelongsToRuntime(entry.claim, runtime)
+      && (nodeSpawnCleanupRequired(entry.claim)
+        || (entry.claim.result?.settlement !== undefined
+          && entry.claim.result.settlement.settledAt === undefined)));
+    if (!hasPending) return;
+    let pending: number;
+    try {
+      pending = await reconcileNodeResultSettlements(this.options.dataDir, runtime, this.client);
+    } catch (error) {
+      this.scheduleSettlementReconcile();
+      throw error;
+    }
+    if (this.settlementTimer !== undefined) {
+      clearTimeout(this.settlementTimer);
+      this.settlementTimer = undefined;
+    }
+    if (pending > 0) this.scheduleSettlementReconcile();
+  }
+
+  private scheduleSettlementReconcile(): void {
+    if (this.closing || this.settlementTimer !== undefined) return;
+    this.settlementTimer = setTimeout(() => {
+      this.settlementTimer = undefined;
+      void this.reconcileRelaySettlementsAfterDrain().catch(error => this.emit('error', error));
+    }, 5_000);
+    this.settlementTimer.unref();
+  }
+
+  private async retiredNodeSession(dispatch: StepDispatchEvent, error: string): Promise<void> {
+    await withWorkerLease(this.client, dispatch, async signal => { signal.throwIfAborted(); });
+    await this.client.stepComplete(
+      dispatch.run_id, dispatch.step_id, dispatch.attempt, dispatch.idempotency_key,
+      'worker_error', {
+        output: { error },
+        usage: { tokens_in: 0, tokens_out: 0, dollars_unmetered: true },
+        started_pins: dispatch.pins,
+        end_pins: dispatch.pins,
       },
     );
   }

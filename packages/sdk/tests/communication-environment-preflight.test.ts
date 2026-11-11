@@ -14,19 +14,10 @@ it('ordinary flows never inspect Relay credentials, packages, or broker', () => 
   checkCommunicationEnvironment({ version: '0.1.0', steps: [{ id: 'plain', type: 'agent', instruction: 'hello' }] });
   expect(mocks.resolve).not.toHaveBeenCalled(); expect(mocks.spawn).not.toHaveBeenCalled();
 });
-it('refuses missing credentials before package or daemon access', () => {
-  vi.stubEnv('RELAY_API_KEY', undefined);
-  expect(() => checkCommunicationEnvironment(spec)).toThrow('requires RELAY_API_KEY');
+it.each([undefined, '', 'rk_live_test'])('always refuses retired communication without probing the broker (credential=%s)', credential => {
+  vi.stubEnv('RELAY_API_KEY', credential);
+  expect(() => checkCommunicationEnvironment(spec)).toThrow('broker/PTy was removed');
+  expect(mocks.resolve).not.toHaveBeenCalled();
   expect(mocks.spawn).not.toHaveBeenCalled();
-});
-it('refuses missing optional packages', () => {
-  vi.stubEnv('RELAY_API_KEY', 'rk_live_test'); mocks.resolve.mockImplementation(() => { throw Error('MODULE_NOT_FOUND'); });
-  expect(() => checkCommunicationEnvironment(spec)).toThrow('optional @agent-relay');
-});
-it.each(['missing', 'not-executable', 'ready'])('checks the broker executable: %s', state => {
-  vi.stubEnv('RELAY_API_KEY', 'rk_live_test'); mocks.resolve.mockReturnValue('/installed/broker-path.js');
-  mocks.spawn.mockReturnValue({ status: state === 'missing' ? 1 : 0, stdout: '/installed/broker' });
-  if (state === 'not-executable') mocks.access.mockImplementation(() => { throw Error('EACCES'); });
-  if (state === 'ready') expect(() => checkCommunicationEnvironment(spec)).not.toThrow();
-  else expect(() => checkCommunicationEnvironment(spec)).toThrow('executable Relay broker');
+  expect(mocks.access).not.toHaveBeenCalled();
 });

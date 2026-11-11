@@ -53,7 +53,7 @@ it.each([false, true])('keeps the communication refusal and budget warning wheth
   const report = communicatingYaml('slack', mounted)(true);
   expect(report.ok).toBe(false);
   expect(report.diagnostics).toEqual(expect.arrayContaining([
-    expect.objectContaining({ severity: 'refusal', kind: 'probe_failed', message: expect.stringContaining('RELAY_API_KEY') }),
+    expect.objectContaining({ severity: 'refusal', kind: 'probe_failed', message: expect.stringContaining('Native node-spawn communication') }),
     expect.objectContaining({ severity: 'warning', kind: 'budget_unmetered' }),
   ]));
   expect(report.diagnostics.some(d => d.kind === 'helper_credential_unresolved')).toBe(!mounted);

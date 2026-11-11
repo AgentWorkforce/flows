@@ -47,6 +47,8 @@ import {
 import { pinCliAlias } from './cli/pinned-cli-alias.js';
 import { prepareDevinRuntime } from './devin-runtime.js';
 import { promptOperand } from './adapters/base.js';
+import type { NodeSpawnRuntime } from './node-spawn-runtime.js';
+import { NodeSpawnError } from './node-spawn.js';
 
 export type { CliTransportCause, CliTransportEvidence, CliTransportPhase } from './cli-transport-evidence.js';
 export { agentCompletionReason } from './cli-transport-evidence.js';
@@ -68,6 +70,11 @@ export function cliInvocationArgv0(cli: string, cliIdentity?: string): string {
 
 export interface WorkerCliResult {
   relay_task?: import('./agent-relay-receipt.js').RelayTaskReceipt;
+  /** Settled only after the journal accepts stepComplete; never journaled. */
+  relay_delivery?: {
+    prepareSettlement?(input: { attempt: number; completionReason: string }): Promise<void>;
+    ack(): Promise<void>;
+  };
   tokens_input?: number;
   tokens_output?: number;
   exit_code: number | null;
@@ -119,8 +126,14 @@ export interface AgentRelayContext {
   runId: string;
   stepId: string;
   idempotencyKey: string;
+  attempt: number;
+  /** Authored journal input without per-attempt recovery evidence. */
+  taskIdentity?: string;
   dataDir?: string;
   resultSchema?: unknown;
+  nodeSpawnRuntime?: NodeSpawnRuntime;
+  nodeSpawnRuntimeProvider?: (signal?: AbortSignal) => Promise<NodeSpawnRuntime>;
+  nodeSpawnCleanupPending?: () => void;
 }
 
 export async function runAgentCli(
@@ -168,7 +181,14 @@ export async function runAgentCli(
     return { exit_code: null, stdout_tail: '',
       stderr_tail: error instanceof Error ? error.message : 'step secret grant is invalid' };
   }
-  const effectiveModel = resolveCliModel(cliIdentity ?? cli, model);
+  // A relay node owns its harness default. `model === undefined` therefore
+  // has to survive this boundary unchanged: resolving the local adapter's
+  // default here would turn an omitted model into a Desktop placement
+  // override. Direct CLI execution still needs the adapter default for its
+  // invocation, usage and pricing paths.
+  const effectiveModel = transport === 'relay'
+    ? model
+    : resolveCliModel(cliIdentity ?? cli, model);
   const argv0 = cliInvocationArgv0(cli, cliIdentity);
 
   if (resume !== undefined && (mode !== 'agent' || transport === 'relay' || !agentResumable(kind))) {
@@ -177,7 +197,10 @@ export async function runAgentCli(
       stderr_tail: `resume is refused for CLI ${JSON.stringify(cli)} (${mode}, ${transport}): only a directly spawned Claude or Codex agent can continue a recorded session` };
   }
   if (mode === 'agent' && transport === 'relay') {
-    return runViaAgentRelay(kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal);
+    return runViaAgentRelay(
+      kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal, stepTimeoutMs,
+      childEnvironment,
+    );
   }
 
   // Artifact detection brackets the spawn: the directory the CLI runs in is
@@ -386,21 +409,29 @@ async function runViaAgentRelay(
   kind: CliAdapterKind, instruction: string, wakeContext: unknown,
   model: string | undefined, context: AgentRelayContext | undefined,
   worker_cwd: string | undefined, signal: AbortSignal | undefined,
+  timeoutMs: number | undefined,
+  environment: NodeJS.ProcessEnv,
 ): Promise<WorkerCliResult> {
   try {
     if (kind === 'relayflows-wrapper-v1') throw new Error('Relay task transport does not support same-process wrappers.');
     if (!context?.dataDir) throw new Error('Relay task transport requires a durable data directory and journal dispatch identity.');
-    const task = instruction + (wakeContext === undefined ? '' : `\n\nWake context (journaled):\n${JSON.stringify(wakeContext)}`)
-      + '\n\nReport the final task output with the injected agent_result tool and final=true. Wait for its successful durable acknowledgment before exiting.';
+    const wake = wakeContext === undefined ? ''
+      : `\n\nWake context (journaled):\n${JSON.stringify(wakeContext)}`;
+    const task = instruction + wake;
+    const taskIdentity = (context.taskIdentity ?? instruction) + wake;
     const received = await runAgentRelayTask({
-      cli: kind, task, model, worker_cwd, result_schema: context.resultSchema,
+      cli: kind, task, taskIdentity, model, worker_cwd, result_schema: context.resultSchema,
       runId: context.runId, stepId: context.stepId, idempotencyKey: context.idempotencyKey,
-      dataDir: context.dataDir,
-    }, { signal });
-    const receipt = { ...received, error: received.error === null ? null : redactRelayError(received.error) };
+      attempt: context.attempt, dataDir: context.dataDir,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    }, { signal, runtime: context.nodeSpawnRuntime, runtimeProvider: context.nodeSpawnRuntimeProvider,
+      onCleanupPending: context.nodeSpawnCleanupPending });
+    const receipt = { ...received.receipt,
+      error: received.receipt.error === null ? null : redactRelayError(received.receipt.error) };
     const accounting = receipt.task_execution.accounting;
     const result: WorkerCliResult = {
-      relay_task: receipt, exit_code: receipt.status === 'completed' ? 0 : 1,
+      relay_task: receipt, relay_delivery: received.delivery,
+      exit_code: receipt.status === 'completed' ? 0 : 1,
       stdout_tail: receipt.status === 'completed' ? JSON.stringify(receipt.output) : '',
       stderr_tail: receipt.status === 'failed' ? `Relay task failed: ${receipt.error}` : '',
       ...(accounting?.tokens_input === undefined ? {} : { tokens_input: accounting.tokens_input }),
@@ -409,10 +440,32 @@ async function runViaAgentRelay(
     return requirePricedUsage(result, model);
   } catch (error) {
     signal?.throwIfAborted();
+    // A durable exact release remains pending. Do not journal worker_error:
+    // leaving this attempt incomplete lets the kernel redispatch it, and the
+    // saved node-spawn claim resumes cleanup without spawning another agent.
+    if (error instanceof AgentRelayTransportError && error.cleanupPending) throw error;
     const detail = error instanceof AgentRelayTransportError ? error.message
       : error instanceof Error ? error.message : 'Relay task transport failed';
-    return { exit_code: null, stdout_tail: '', stderr_tail: redactRelayError(detail) };
+    const timedOut = error instanceof AgentRelayTransportError && relayTaskTimedOut(error);
+    return { exit_code: null, stdout_tail: '', stderr_tail: redactRelayError(detail),
+      ...(timedOut ? { transport: transportEvidence({
+        phase: 'timeout', cause: 'timeout', exitCode: null, signal: null,
+        stderr: detail, retryable: false,
+      }, environment) } : {}) };
   }
+}
+
+function relayTaskTimedOut(error: AgentRelayTransportError): boolean {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current !== undefined && current !== null && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof NodeSpawnError && current.code === 'task_timeout') return true;
+    if (current instanceof DOMException && current.name === 'TimeoutError') return true;
+    current = current instanceof AgentRelayTransportError || current instanceof NodeSpawnError
+      ? current.cause : undefined;
+  }
+  return false;
 }
 
 /**

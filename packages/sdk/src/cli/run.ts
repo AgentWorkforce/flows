@@ -161,6 +161,8 @@ export interface RunLifecycleOptions {
   localAgent?: boolean;
   /** `--agent-capacity`: the local workers' concurrency; the default is `DEFAULT_LOCAL_AGENT_CAPACITY`. */
   agentCapacity?: number;
+  /** Absolute Desktop schema-v2 caller.json path for local relay agent steps. */
+  serviceCallerFile?: string;
   signal?: AbortSignal;
   onWait?: (progress: RunProgress) => void;
   /**
@@ -235,7 +237,7 @@ async function executeCheckedFlow(
     if (options.localAgent) {
       localAgent = await attachLocalAgent(
         client, dataDir, options.onPtyReady, undefined, options.agentCapacity,
-        undefined, declaredLocalAgentStreams(spec), agentEnvironment,
+        undefined, declaredLocalAgentStreams(spec), agentEnvironment, options.serviceCallerFile,
       );
     }
     if (options.localAgent && spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
@@ -356,7 +358,7 @@ export async function resumeFlow(
       if (options.localAgent) {
         authoredAgent = await attachLocalAgent(
           client, dataDir, options.onPtyReady, authoredRoot.localAgentStream, workerCapacity,
-          undefined, [], agentEnvironment,
+          undefined, [], agentEnvironment, options.serviceCallerFile,
         );
         authoredLlmClient = new JournalClient(socketPath);
         await authoredLlmClient.connect();
@@ -395,7 +397,7 @@ export async function resumeFlow(
       if (!spec) throw new Error('Cannot attach a local worker: the journaled run spec is missing');
       authoredAgent = await attachLocalAgent(
         client, dataDir, options.onPtyReady, undefined, options.agentCapacity,
-        undefined, declaredLocalAgentStreams(spec), agentEnvironment,
+        undefined, declaredLocalAgentStreams(spec), agentEnvironment, options.serviceCallerFile,
       );
       if (spec?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
         const { attachCommunicationWorkers } = await import('../communication/local.js');

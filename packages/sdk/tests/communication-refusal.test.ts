@@ -5,7 +5,7 @@ import { expect, it, vi } from 'vitest';
 import { checkFlow } from '../src/cli/check.js';
 import { runFlow } from '../src/cli/run.js';
 
-it('check and run refuse missing Relay prerequisites before creating a daemon or journal', async () => {
+it('check and run refuse retired broker communication before creating a daemon or journal', async () => {
   const root = mkdtempSync(join(tmpdir(), 'communication-refusal-'));
   vi.stubEnv('RELAY_API_KEY', undefined);
   try {
@@ -19,11 +19,11 @@ it('check and run refuse missing Relay prerequisites before creating a daemon or
     const checked = checkFlow(path);
     expect(checked.report.ok).toBe(false);
     expect(checked.flow).toBeUndefined();
-    expect(checked.report.diagnostics).toContainEqual(expect.objectContaining({ severity: 'refusal', kind: 'probe_failed', message: expect.stringContaining('RELAY_API_KEY') }));
+    expect(checked.report.diagnostics).toContainEqual(expect.objectContaining({ severity: 'refusal', kind: 'probe_failed', message: expect.stringContaining('broker/PTy was removed') }));
     const dataDir = join(root, 'data');
     const run = await runFlow(path, dataDir, { localAgent: true, daemon: { spawn: false } });
     expect(run.exitCode).toBe(2);
-    expect(run.report.diagnostics).toContainEqual(expect.objectContaining({ kind: 'probe_failed', message: expect.stringContaining('RELAY_API_KEY') }));
+    expect(run.report.diagnostics).toContainEqual(expect.objectContaining({ kind: 'probe_failed', message: expect.stringContaining('broker/PTy was removed') }));
     expect(run.report.diagnostics.some(d => d.kind === 'protocol_error' || d.kind === 'daemon_unreachable')).toBe(false);
     expect(existsSync(dataDir)).toBe(false);
   } finally { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); }

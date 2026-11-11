@@ -2,9 +2,22 @@ import type { StepDispatchEvent } from './protocol.js';
 
 /** Memory precedes the final, visibly delimited JSON input segment. */
 export function workerInstruction(instruction: string, dispatch: StepDispatchEvent): string {
+  return renderWorkerInstruction(instruction, dispatch, true);
+}
+
+/** Stable dispatch input, excluding recovery evidence that changes between attempts. */
+export function workerInstructionIdentity(instruction: string, dispatch: StepDispatchEvent): string {
+  return renderWorkerInstruction(instruction, dispatch, false);
+}
+
+function renderWorkerInstruction(
+  instruction: string,
+  dispatch: StepDispatchEvent,
+  includeRecovery: boolean,
+): string {
   const withMemory = dispatch.memory === undefined ? instruction
     : `${instruction}\n\nMemory context (journaled):\n${JSON.stringify(dispatch.memory.pack)}`;
-  const noted = `${withMemory}${recoveryNote(dispatch)}`;
+  const noted = includeRecovery ? `${withMemory}${recoveryNote(dispatch)}` : withMemory;
   if (dispatch.input === undefined) {
     if (typeof dispatch.spec === 'object' && dispatch.spec !== null
       && 'input' in dispatch.spec) {

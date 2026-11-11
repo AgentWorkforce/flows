@@ -1,58 +1,135 @@
-# Relay agent task transport
+# Agent Relay node-spawn transport
 
-An agent step with `transport: 'relay'` waits for a durable final task receipt.
-Spawn readiness and invocation acceptance do not complete the Flows step.
+An agent step with `transport: 'relay'` runs through Agent Relay's native node
+spawn control. Flows no longer invokes the Relaycast `task.run` action and does
+not start, connect to, or embed the retired Relay broker.
 
-This adapter requires the task contract in AgentWorkforce/relaycast#436
-(`c80202f2dfe7a15a6cef5b81f2452b1d7acd6add`) and its provider in
-AgentWorkforce/relay#1772 (`6a06fd176df94ca1054d5b7965bd777b7d881eb6`;
-subsequent proof-only commit `a8577736dd32c0bcf51a37f88ac0b04fb056da3f`).
-These changes need to be admitted and deployed in that order before a live
-Cloud proof can validate this adapter. The independent schema-validation fix in AgentWorkforce/flows#398 is also an
-explicit validate dependency; its patch is not included here. Local wire fixtures do not establish
-that the deployed service supports the contract.
+## Runtime contract
 
-Configure a pre-provisioned `RELAY_AGENT_TOKEN` for the caller in the provider's
-workspace and, if needed, `RELAY_BASE_URL` (default `https://cast.agentrelay.com`).
-A workspace API key cannot substitute for the agent token. HTTPS is required
-except for literal loopback IP addresses used in local development. The Relay provider
-must explicitly enable `AGENT_RELAY_TASK_PROVIDER=1` with persistent state.
-The worker uses its injected `agent_result` tool to submit the final output or
-failure and waits for the provider's durable acknowledgment before exiting.
+The worker needs a dedicated publisher `RELAY_AGENT_TOKEN`; a workspace key
+cannot replace it. `RELAY_BASE_URL` defaults to
+`https://cast.agentrelay.com`. Optional placement constraints are
+`RELAYFLOW_NODE_NAME`, `RELAYFLOW_NODE_REPO`, and
+`RELAYFLOW_NODE_SANDBOX_ONLY=1`.
 
-Flows resolves the caller with `GET /v1/agent` and invokes
-`POST /v1/actions/task.run/invoke`. The journal idempotency key identifies the
-invocation; the input carries run, step, dispatch identity, model, working
-directory, result schema, wake context, and a 24-hour task deadline. The adapter
-uses the pinned engine's `action-invoke-v1` deterministic invocation ID so it
-can reconcile a lost POST acknowledgment without another POST.
+The remote path uses `@agent-relay/sdk >=17.2.1 <19`:
 
-Before dispatch, Flows exclusively creates and syncs a private claim under its
-durable data directory's `relay-tasks/`. It binds the canonical engine origin,
-workspace, caller, invocation, journal identity, and full input. The data
-directory must survive runner restarts; it includes the task prompt and needs
-the same protection as the journal. Tokens are never stored in the claim.
-A corrupt claim or changed caller, endpoint, or input fails closed. Token
-rotation for the same caller remains possible.
+1. `placement.spawn` selects a live node advertising `spawn:<harness>`.
+2. Flows requests `confirm: true` and `verifyReady: true` and refuses an
+   unconfirmed task, identity, node, launch, or readiness result.
+3. The spawned agent reports one versioned result envelope to the publisher's
+   durable inbox. Flows verifies the immutable sender id and name plus run,
+   step, and dispatch correlation.
+4. Flows invokes the node's `release` capability on the same node with the
+   exact agent id, then records spawn, delivery, and release evidence.
+5. Only after `stepComplete` is durably accepted by the journal does Flows ack
+   the inbox delivery. Relay is transport; the journal is execution authority.
 
-Only the original claim creator sends a POST. Resumed or ambiguous dispatches
-use `GET /v1/actions/task.run/invocations/:id` exclusively. If the task cannot be
-confirmed, Flows reports an explicit failure; it never creates another task
-under a replacement principal. A terminal failure is immutable for that
-journal identity, including on a retry of the same dispatch. Starting a new
-logical task requires a new journal identity.
+Before the journal append, Flows records a settlement intent containing the
+kernel attempt and expected completion reason. The journal's terminal fact
+must contain that reason and the exact Relay delivery and message ids before a
+restart can acknowledge the inbox item. Inbox acknowledgement and rejection
+have independent deadlines; an unconfirmed operation remains in the durable
+outbox. It is retried on worker attach only when admission already established
+the exact matching publisher authority, then after dispatch drain and on
+shutdown while that authority remains established. A durable claim never
+creates authority or triggers credential discovery by itself.
 
-While polling, Flows renews the existing worker lease. Lease loss aborts polling
-and prevents a stale journal completion. Execution identity must remain stable across every observed receipt. Generation
-and acceptance time may appear together once and must then remain stable; final receipts must match the caller, invocation,
-input, run, step, and dispatch. A completed receipt supplies the exact JSON
-output, including arrays, scalars, and null. A failed receipt supplies an
-explicit failure reason. Receipt correlation is retained in the step's
-trajectory metadata. Known credential values are redacted from error details.
+One worker uses one lazy publisher connection across all of its concurrent
+relay steps. Each step closes only its inbox iterator. The default runtime is
+disconnected after worker shutdown drains every step; cancellation teardown is
+best-effort. Injected runtimes remain caller-owned: their caller must
+disconnect them after every worker sharing that runtime has drained.
 
-Optional accounting counters `tokens_input` and `tokens_output` feed existing
-model pricing. A priced task without the required usage still fails the
-existing usage check. Cancellation of local polling does not invent a remote
-cancellation API; the durable provider and engine task deadline govern the
-remote execution. Historical terminal receipts can still be recovered after
-the deadline.
+Spawn readiness is not task completion. A result without the exact sender and
+attempt correlation cannot complete a step.
+
+## Replay and cancellation
+
+Before dispatch, Flows creates and fsyncs a private claim under
+`<data-dir>/node-spawns/`. It binds publisher identity, Relay origin, journal
+identity, stable worker name, and full spawn input. Tokens are never stored.
+
+The current fleet placement SDK has no caller-provided idempotency key for the
+placement invocation itself. Flows forwards the durable key to the selected
+node in the spawn action input. A version 3 claim uses a permanent sibling
+dispatch fence: Flows writes and fsyncs a complete private marker, atomically
+hard-links it into place, and fsyncs the directory immediately before local
+`spawn.invoke` or remote `placement.spawn`. Competing workers may repeat
+preflight, but only the fence winner may enter that irreversible call. A v3
+claim with no fence proves dispatch was not entered and may retry preflight.
+The exact built-in local Desktop port is the sole fenced-replay exception:
+Core Bridge 18.1 or newer durably deduplicates `spawn.invoke` by the forwarded
+idempotency key, so a restart may repeat that identical request and recover the
+original invocation after its reply was lost. Flows admits that replay only for
+the SDK runtime built from the exact module returned by `loadCoreBridge()`, with
+the unchanged local port prototype and lifecycle methods, and re-verifies the
+existing fence before entry. The durable claim retains the original rendered
+task and exact local node name/id. Replay uses those stored bytes; a changed
+node identity fails closed, while mutable current directory-scope or live-target
+preflight is not reapplied. A new unfenced dispatch still applies all current
+caller scope and target checks. A missing receipt from remote placement, an
+injected bridge, a custom or overridden port, or a legacy version 2 claim
+remains ambiguous and fails closed without another dispatch. Malformed,
+mismatched, or unreadable fence state also fails closed. A recorded invocation
+is reconciled with `commands.getInvocation`. The stable worker name provides
+additional collision protection at the node.
+
+Custom `NodeSpawnPort` implementations must declare `dispatchFenceVersion: 1`
+and accept the supplied `beforeDispatch` callback. Because Flows cannot audit
+arbitrary port code, it publishes and fsyncs the fence before entering a custom
+`spawn`; an error from that call is permanently ambiguous and cannot be retried.
+The callback remains part of the protocol and is idempotent after publication.
+Only the SDK runtime constructed from its internally loaded Core Bridge module
+and exact built-in local lifecycle method/state set may use
+`NodeSpawnPreDispatchError` to retain retryable target preflight. Replacing or
+overriding a relevant method removes the narrow trust and fences it before entry.
+Existing one-argument `spawn` implementations are not compatible
+even though JavaScript can ignore extra arguments: the required protocol field
+makes them a type error, and the runtime refuses a missing or unknown version
+before creating a durable claim.
+
+The claim also fixes the task's original start time. Resume never grants a new
+execution deadline. Once a correlated result was durably observed before that
+deadline, the validated envelope is part of the claim and can be replayed to
+the journal after any restart delay. Recovery cannot use that fact to spawn or
+extend remote execution.
+
+Lease loss or timeout aborts the inbox wait and attempts exact release. A
+post-spawn verification failure carries any exact identity already proven into
+the same cleanup path. Spawn and release action inputs carry their stable
+idempotency keys. Every release attempt has an independent deadline. A failed
+or unconfirmed cleanup is recorded as pending in the durable claim,
+the attempt remains incomplete for kernel redispatch, and the result remains
+unacked. Kernel redelivery therefore reopens the same claim and retries exact
+release before it can accept a result or issue another spawn. A result delivery
+stays unacked until its terminal journal append succeeds, so a worker crash
+cannot turn Relay acknowledgement into fabricated execution truth.
+
+## Local Desktop bridge
+
+The SDK contains a local `NodeSpawnPort` adapter for Desktop's schema-v2
+service-caller bridge. The caller is an explicit private `caller.json` path
+supplied with `--service-caller-file`, the SDK `serviceCallerFile` option, or
+`RELAYFLOW_SERVICE_CALLER_FILE`; Flows never scans Desktop's app-data
+directory. Optional `@agent-relay/core-bridge` `>=18.1.0 <19` validates the
+handoff and local socket or named pipe, challenge-authenticates a fresh
+connection, verifies the bound publisher/workspace/node identity, and then
+calls `spawn.targets`, `spawn.invoke`, `spawn.status`, and `spawn.release` without sending a caller
+name or secret. The same authenticated bridge provides the invocation-scoped
+result inbox and its ack/fail/close/disconnect lifecycle.
+
+An explicit caller handoff is bound before the local worker registers with the
+journal, so a missing, expired, malformed, revoked or identity-mismatched file
+cannot admit a run and fail only at its first Relay step. The bridge package
+owns platform-specific socket and Windows named-pipe trust checks; a bridge
+version hello by itself is not authentication.
+The current bridge does not accept model, repository, or sandbox placement
+overrides, so the local adapter refuses those fields instead of dropping them.
+
+The CLI selects this adapter only when the caller file is explicit and
+absolute. It is mutually exclusive with `RELAY_AGENT_TOKEN`; Flows does not
+borrow another session's name and does not invent or provision authority.
+Desktop creates, rotates and revokes the private handoff.
+
+See [the migration note](MIGRATION-NODE-SPAWN.md) for removed broker surfaces.

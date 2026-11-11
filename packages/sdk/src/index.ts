@@ -241,6 +241,33 @@ export { JOURNAL_WRITE_FAILED, PROTOCOL_VERSION } from './protocol.js';
 
 export { JournalClient, JournalRequestTimeoutError, type JournalClientOptions } from './journal-client.js';
 export { AgentWorker, type AgentWorkerOptions } from './worker.js';
+export {
+  NodeSpawnError,
+  NodeSpawnPreDispatchError,
+  type BeforeNodeDispatch,
+  type NodeReleaseRequest,
+  type NodeSpawnAction,
+  type NodeSpawnInvocation,
+  type NodeSpawnPort,
+  type NodeSpawnReceipt,
+  type NodeSpawnRequest,
+  type NodeSpawnTarget,
+} from './node-spawn.js';
+export {
+  LocalNodeSpawnPort,
+  loadCoreBridge,
+  type CallerDescriptor,
+  type CoreBridgeApi,
+  type CoreBridgeClient,
+} from './node-spawn-local.js';
+export { RemoteNodeSpawnPort, type RemoteNodeSpawnClient } from './node-spawn-remote.js';
+export {
+  createLocalNodeSpawnRuntime,
+  createNodeSpawnRuntime,
+  createRemoteNodeSpawnRuntime,
+  type NodeSpawnPublisher,
+  type NodeSpawnRuntime,
+} from './node-spawn-runtime.js';
 
 export {
   validateWorkPackage,
