@@ -1,8 +1,7 @@
 import {
   mkdtempSync,
-  cpSync,
   existsSync,
-  mkdirSync,
+  lstatSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -11,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, sep } from 'node:path';
+import { dirname, join, relative, isAbsolute, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -36,36 +35,31 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-/** Preserve npm's actual nested dependency layout without workspace links. */
-function copySurfaceInstallation(directory: string): void {
-  const modules = realpathSync(join(SDK, 'node_modules'));
-  const copied = new Set<string>();
-  const copy = (installed: string): void => {
-    const source = realpathSync(installed);
-    if (copied.has(source)) return;
-    const location = relative(modules, source);
-    expect(location.startsWith(`..${sep}`) || location === '..').toBe(false);
-    copied.add(source);
-    const destination = join(directory, 'node_modules', location);
-    mkdirSync(dirname(destination), { recursive: true });
-    cpSync(source, destination, { recursive: true, dereference: true,
-      filter: path => path !== join(source, 'node_modules') });
-    const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'));
-    for (const name of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })) {
-      let parent = source;
-      for (;;) {
-        const candidate = join(parent, 'node_modules', name);
-        if (existsSync(join(candidate, 'package.json'))) { copy(candidate); break; }
-        const next = dirname(parent);
-        if (next === parent) {
-          expect(manifest.peerDependenciesMeta?.[name]?.optional, `missing installed dependency ${name}`).toBe(true);
-          break;
-        }
-        parent = next;
-      }
-    }
-  };
-  copy(join(modules, '@relayflows/surface'));
+/** Pack either a registry install or npm's same-worktree CI link, then install physically. */
+function installSurfacePackage(directory: string): void {
+  const source = realpathSync(join(SDK, 'node_modules/@relayflows/surface'));
+  const location = relative(realpathSync(ROOT), source);
+  expect(isAbsolute(location) || location === '..' || location.startsWith(`..${sep}`),
+    'Surface must come from this owned checkout, never a foreign worktree').toBe(false);
+  const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'));
+  expect(manifest.name).toBe('@relayflows/surface');
+  const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', directory], {
+    cwd: source, encoding: 'utf8', timeout: 60_000,
+  });
+  expect(packed.status, packed.stderr + packed.stdout).toBe(0);
+  const [{ filename }] = JSON.parse(packed.stdout) as Array<{ filename: string }>;
+  writeFileSync(join(directory, 'package.json'), '{"private":true,"type":"module"}');
+  const installed = spawnSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund',
+    '--omit=dev', '--registry=https://registry.npmjs.org', '--save-exact', join(directory, filename)], {
+    cwd: directory, encoding: 'utf8', timeout: 90_000,
+  });
+  expect(installed.status, installed.stderr + installed.stdout).toBe(0);
+  const target = join(directory, 'node_modules/@relayflows/surface');
+  expect(lstatSync(target).isSymbolicLink()).toBe(false);
+  expect(realpathSync(target)).toBe(join(realpathSync(directory), 'node_modules/@relayflows/surface'));
+  expect(JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'))).toEqual(manifest);
+  const helpers = JSON.parse(readFileSync(join(directory, 'node_modules/@relayfile/relay-helpers/package.json'), 'utf8'));
+  expect(helpers.version).toBe(manifest.peerDependencies['@relayfile/relay-helpers']);
 }
 
 function invoke(entry: string, flow: string, env: NodeJS.ProcessEnv = process.env) {
@@ -100,8 +94,7 @@ describe('built flows binary', () => {
       env: { ...process.env, FLOWS_BUILD_BUN: process.env['FLOWS_BUILD_BUN'] ?? 'bun' },
     });
     expect(built.status, built.stderr + built.stdout).toBe(0);
-    copySurfaceInstallation(directory);
-    writeFileSync(join(directory, 'package.json'), '{"private":true,"type":"module"}');
+    installSurfacePackage(directory);
     writeFileSync(join(directory, '.env'), 'FLOWS_STANDALONE_DOTENV_PROBE=unexpected\n');
     writeFileSync(join(directory, 'bunfig.toml'), 'preload = ["./must-not-preload.mjs"]\n');
     writeFileSync(join(directory, 'must-not-preload.mjs'), "throw new Error('bunfig unexpectedly loaded');\n");
