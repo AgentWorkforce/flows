@@ -1,7 +1,9 @@
 import {
   mkdtempSync,
+  cpSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -35,7 +37,7 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-/** Pack either a registry install or npm's same-worktree CI link, then install physically. */
+/** Stage owned package payloads so npm 10's prepare hook cannot rebuild shared dist. */
 function installSurfacePackage(directory: string): void {
   const source = realpathSync(join(SDK, 'node_modules/@relayflows/surface'));
   const location = relative(realpathSync(ROOT), source);
@@ -43,8 +45,22 @@ function installSurfacePackage(directory: string): void {
     'Surface must come from this owned checkout, never a foreign worktree').toBe(false);
   const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'));
   expect(manifest.name).toBe('@relayflows/surface');
+  const staging = join(directory, 'surface-package');
+  mkdirSync(staging);
+  for (const file of manifest.files as string[]) {
+    expect(isAbsolute(file) || file.split(/[\\/]/).includes('..')).toBe(false);
+    const target = join(staging, file);
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(join(source, file), target, { recursive: true, dereference: true,
+      filter: path => !relative(source, path).split(sep).includes('node_modules') });
+  }
+  // Fixture-only lifecycle normalization follows scripts/publish.test.mjs.
+  // Runtime files, exports, versions and peer contracts still come from Surface.
+  const stagingManifest = structuredClone(manifest);
+  for (const hook of ['prepare', 'prepack', 'postpack']) delete stagingManifest.scripts?.[hook];
+  writeFileSync(join(staging, 'package.json'), JSON.stringify(stagingManifest));
   const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', directory], {
-    cwd: source, encoding: 'utf8', timeout: 60_000,
+    cwd: staging, encoding: 'utf8', timeout: 60_000,
   });
   expect(packed.status, packed.stderr + packed.stdout).toBe(0);
   const [{ filename }] = JSON.parse(packed.stdout) as Array<{ filename: string }>;
@@ -57,7 +73,9 @@ function installSurfacePackage(directory: string): void {
   const target = join(directory, 'node_modules/@relayflows/surface');
   expect(lstatSync(target).isSymbolicLink()).toBe(false);
   expect(realpathSync(target)).toBe(join(realpathSync(directory), 'node_modules/@relayflows/surface'));
-  expect(JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'))).toEqual(manifest);
+  const installedManifest = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'));
+  expect(installedManifest).toEqual(stagingManifest);
+  expect({ ...installedManifest, scripts: manifest.scripts }).toEqual(manifest);
   const helpers = JSON.parse(readFileSync(join(directory, 'node_modules/@relayfile/relay-helpers/package.json'), 'utf8'));
   expect(helpers.version).toBe(manifest.peerDependencies['@relayfile/relay-helpers']);
 }
