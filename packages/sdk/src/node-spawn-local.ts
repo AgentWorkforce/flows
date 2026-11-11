@@ -186,6 +186,7 @@ interface LocalNodeSpawnState {
   bridgeMethods: readonly unknown[];
   exactNodeId: string;
   exactNodeName: string;
+  internalMethods: readonly unknown[];
 }
 
 const localNodeSpawnStates = new WeakMap<LocalNodeSpawnPort, LocalNodeSpawnState>();
@@ -231,13 +232,14 @@ export function enableLoadedCoreBridgeCapabilities(
   bridge: CoreBridgeApi,
 ): void {
   if (!loadedCoreBridges.has(bridge)) return;
-  const validateState = (): boolean => port[LOCAL_STATE_IS_EXACT]();
+  const validateState = port[LOCAL_STATE_IS_EXACT].bind(port);
+  const replay = port[LOCAL_FENCED_REPLAY].bind(port);
   registerRetryablePreflightPort(port, LOCAL_NODE_SPAWN_IDENTITY, validateState);
   registerReplayableFencedPort(
     port,
     LOCAL_NODE_SPAWN_IDENTITY,
     validateState,
-    (request, beforeDispatch) => port[LOCAL_FENCED_REPLAY](request, beforeDispatch),
+    replay,
   );
 }
 
@@ -264,6 +266,11 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
       ],
       exactNodeId: exactNode.id,
       exactNodeName: exactNode.name,
+      internalMethods: [
+        this.invokeSpawn,
+        this.wait,
+        this.cleanupIdentity,
+      ],
     });
   }
 
@@ -279,7 +286,10 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
       && this.bridge.spawnTargets === state.bridgeMethods[0]
       && this.bridge.spawnInvoke === state.bridgeMethods[1]
       && this.bridge.spawnStatus === state.bridgeMethods[2]
-      && this.bridge.spawnRelease === state.bridgeMethods[3];
+      && this.bridge.spawnRelease === state.bridgeMethods[3]
+      && this.invokeSpawn === state.internalMethods[0]
+      && this.wait === state.internalMethods[1]
+      && this.cleanupIdentity === state.internalMethods[2];
   }
 
   async targets(): Promise<NodeSpawnTarget[]> {

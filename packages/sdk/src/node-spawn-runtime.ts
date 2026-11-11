@@ -126,6 +126,7 @@ export async function createLocalNodeSpawnRuntime(
       'caller_file_invalid',
     );
   }
+  const internallyLoadedBridge = options.bridge === undefined;
   const bridge = options.bridge ?? await loadCoreBridge();
   const descriptor = await bridge.readCallerDescriptor(serviceCallerFile);
   const core = await bindCore(bridge, descriptor, options.signal);
@@ -139,7 +140,7 @@ export async function createLocalNodeSpawnRuntime(
       );
     }
     const port = new LocalNodeSpawnPort(core, bridge, descriptor, identity.node);
-    enableLoadedCoreBridgeCapabilities(port, bridge);
+    if (internallyLoadedBridge) enableLoadedCoreBridgeCapabilities(port, bridge);
     return {
       port,
       inbox: localResultInbox(bridge, descriptor),

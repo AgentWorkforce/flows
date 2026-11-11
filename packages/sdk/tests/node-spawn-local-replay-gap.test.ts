@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runAgentRelayTask, type AgentRelayTaskRequest } from '../src/agent-relay-transport.js';
 import { hasReplayableFencedDispatch } from '../src/node-spawn-dispatch.js';
+import { loadCoreBridge } from '../src/node-spawn-local.js';
 import { createLocalNodeSpawnRuntime } from '../src/node-spawn-runtime.js';
 import { nodeSpawnDispatchFencePath, readNodeSpawnClaims } from '../src/node-spawn-state.js';
 
@@ -234,4 +235,19 @@ describe('official local strict replay', () => {
       expect(hasReplayableFencedDispatch(runtime.port)).toBe(false);
     },
   );
+
+  it.each(['invokeSpawn', 'wait', 'cleanupIdentity'] as const)(
+    'revokes replay trust when internal replay method %s is overridden', async method => {
+      const runtime = await createLocalNodeSpawnRuntime('/tmp/caller.json');
+      expect(hasReplayableFencedDispatch(runtime.port)).toBe(true);
+      Object.defineProperty(runtime.port, method, { value: vi.fn(), configurable: true });
+      expect(hasReplayableFencedDispatch(runtime.port)).toBe(false);
+    },
+  );
+
+  it('does not trust even the official module when supplied through options.bridge', async () => {
+    const bridge = await loadCoreBridge();
+    const runtime = await createLocalNodeSpawnRuntime('/tmp/caller.json', { bridge });
+    expect(hasReplayableFencedDispatch(runtime.port)).toBe(false);
+  });
 });
