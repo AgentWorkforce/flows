@@ -19,6 +19,8 @@ export interface NodeSpawnRequest {
   directory?: string;
   idempotencyKey: string;
   node?: string;
+  /** Exact local node identity retained only for durable fenced replay. */
+  nodeId?: string;
   repo?: string;
   timeoutMs?: number;
   sandboxOnly?: boolean;

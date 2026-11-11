@@ -64,15 +64,16 @@ idempotency key, so a restart may repeat that identical request and recover the
 original invocation after its reply was lost. Flows admits that replay only for
 the SDK runtime built from the exact module returned by `loadCoreBridge()`, with
 the unchanged local port prototype and lifecycle methods, and re-verifies the
-existing fence before entry. That replay repeats the already-admitted request
-and exact node without applying mutable current directory-scope or live-target
-preflight. A new unfenced dispatch still applies all current caller scope and
-target checks. A missing receipt from remote placement, an injected bridge, a
-custom or overridden port, or a legacy version 2 claim remains ambiguous and
-fails closed without another dispatch. Malformed, mismatched, or unreadable
-fence state also fails closed. A recorded invocation is reconciled with
-`commands.getInvocation`. The stable worker name provides additional
-collision protection at the node.
+existing fence before entry. The durable claim retains the original rendered
+task and exact local node name/id. Replay uses those stored bytes; a changed
+node identity fails closed, while mutable current directory-scope or live-target
+preflight is not reapplied. A new unfenced dispatch still applies all current
+caller scope and target checks. A missing receipt from remote placement, an
+injected bridge, a custom or overridden port, or a legacy version 2 claim
+remains ambiguous and fails closed without another dispatch. Malformed,
+mismatched, or unreadable fence state also fails closed. A recorded invocation
+is reconciled with `commands.getInvocation`. The stable worker name provides
+additional collision protection at the node.
 
 Custom `NodeSpawnPort` implementations must declare `dispatchFenceVersion: 1`
 and accept the supplied `beforeDispatch` callback. Because Flows cannot audit

@@ -204,14 +204,20 @@ function sameClaim(prior: NodeSpawnClaim, proposed: NodeSpawnClaim): boolean {
 function decodeNodeSpawnClaim(value: unknown, label: string): NodeSpawnClaim {
   const invalid = (): never => { throw new Error(`Invalid durable node-spawn claim: ${label}`); };
   const record = isRecord(value) ? value : invalid();
+  const requestRecord = isRecord(record.request) ? record.request : invalid();
   if ((record.version !== 2 && record.version !== 3)
     || ![record.baseUrl, record.publisherId, record.publisherName, record.runId, record.stepId, record.agentName]
       .every(nonempty)
     || !validIdempotencyKey(record.idempotencyKey)
     || !positiveInteger(record.timeoutMs) || record.timeoutMs > 86_400_000
-    || !isRecord(record.request)
-    || ![record.request.cli, record.request.task, record.request.task_identity].every(nonempty)
+    || ![requestRecord.cli, requestRecord.task, requestRecord.task_identity].every(nonempty)
     || !safeTime(record.startedAt)) invalid();
+  for (const field of ['model', 'worker_cwd', 'node', 'node_id', 'repo'] as const) {
+    if (requestRecord[field] !== undefined && !nonempty(requestRecord[field])) invalid();
+  }
+  if (requestRecord.node_id !== undefined && requestRecord.node === undefined) invalid();
+  if (requestRecord.sandbox_only !== undefined
+    && typeof requestRecord.sandbox_only !== 'boolean') invalid();
   const claim = record as unknown as NodeSpawnClaim;
   if (record.spawn !== undefined && !validNodeSpawnReceipt(record.spawn)) invalid();
   if (record.cleanup !== undefined && !validNodeSpawnIdentity(record.cleanup)) invalid();

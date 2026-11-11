@@ -346,6 +346,10 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
         throw new NodeSpawnError('The requested node differs from the authenticated Desktop node',
           'spawn_identity_mismatch');
       }
+      if (request.nodeId !== undefined && request.nodeId !== this.exactNode.id) {
+        throw new NodeSpawnError('The requested node id differs from the authenticated Desktop node',
+          'spawn_identity_mismatch');
+      }
       target = allTargets.find(candidate => candidate.id === this.exactNode.id
         && candidate.name === this.exactNode.name
         && candidate.live && candidate.handlersLive && !candidate.stale
@@ -380,8 +384,8 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
         'spawn_invalid_input',
       );
     }
-    if (request.node !== undefined && request.node !== this.exactNode.name) {
-      throw new NodeSpawnError('The requested node differs from the authenticated Desktop node',
+    if (!request.node || !request.nodeId) {
+      throw new NodeSpawnError('Fenced local replay requires the durable exact node identity',
         'spawn_identity_mismatch');
     }
     // The original v3 claim was already admitted and fenced. Repeating the
@@ -390,7 +394,7 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     return this.invokeSpawn(
       { ...request, directory: request.directory },
       beforeDispatch,
-      this.exactNode,
+      { id: request.nodeId, name: request.node },
     );
   }
 

@@ -21,6 +21,8 @@ export interface NodeSpawnRuntime {
   publisher: NodeSpawnPublisher;
   baseUrl: string;
   node?: string;
+  /** Exact local node id paired with node; remote placement leaves this unset. */
+  nodeId?: string;
   repo?: string;
   sandboxOnly?: boolean;
   /** Explicit authority family; Desktop alone may receive the worker's local run root. */
@@ -148,6 +150,7 @@ export async function createLocalNodeSpawnRuntime(
       baseUrl: identity.base_url,
       authority: 'desktop',
       node: identity.node.name,
+      nodeId: identity.node.id,
       disconnect: async () => {
         await disconnectBoundCore(bridge, core);
       },

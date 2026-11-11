@@ -73,7 +73,9 @@ only when the SDK runtime loaded the exact Core Bridge module and the local
 prototype and lifecycle method identities remain unchanged. Injected bridges,
 wrappers, subclasses, overrides, accessors, custom ports, remote placement and
 legacy version 2 claims remain fail-closed. New unfenced local dispatches still
-enforce current caller scope and target eligibility.
+enforce current caller scope and target eligibility. Fenced replay uses the
+durable original rendered task and exact local node name/id; a changed node
+identity is refused before replay.
 
 ## Hosted and self-hosted execution
 

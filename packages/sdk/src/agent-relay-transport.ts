@@ -219,6 +219,7 @@ async function executeAgentRelayTask(
       ...(request.worker_cwd === undefined ? {} : { worker_cwd: request.worker_cwd }),
       ...(request.result_schema === undefined ? {} : { result_schema: request.result_schema }),
       ...(runtime.node === undefined ? {} : { node: runtime.node }),
+      ...(runtime.nodeId === undefined ? {} : { node_id: runtime.nodeId }),
       ...(runtime.repo === undefined ? {} : { repo: runtime.repo }),
       ...(runtime.sandboxOnly === undefined ? {} : { sandbox_only: runtime.sandboxOnly }),
     },
@@ -254,18 +255,26 @@ async function executeAgentRelayTask(
       // setup and durable claiming can take time or lose the worker lease.
       signal?.throwIfAborted();
       const remaining = remainingDeadline(deadline);
+      const durableRequest = claim.request;
       const spawn = await dispatchFencedNodeSpawn({
         port: runtime.port,
         request: {
-          name: agentName,
-          harness: request.cli,
-          task,
-          ...(request.model === undefined ? {} : { model: request.model }),
-          ...(request.worker_cwd === undefined ? {} : { directory: request.worker_cwd }),
-          idempotencyKey: request.idempotencyKey,
-          ...(runtime.node === undefined ? {} : { node: runtime.node }),
-          ...(runtime.repo === undefined ? {} : { repo: runtime.repo }),
-          ...(runtime.sandboxOnly === undefined ? {} : { sandboxOnly: runtime.sandboxOnly }),
+          name: claim.agentName,
+          harness: durableRequest.cli as string,
+          task: durableRequest.task as string,
+          ...(durableRequest.model === undefined
+            ? {} : { model: durableRequest.model as string }),
+          ...(durableRequest.worker_cwd === undefined
+            ? {} : { directory: durableRequest.worker_cwd as string }),
+          idempotencyKey: claim.idempotencyKey,
+          ...(durableRequest.node === undefined
+            ? {} : { node: durableRequest.node as string }),
+          ...(durableRequest.node_id === undefined
+            ? {} : { nodeId: durableRequest.node_id as string }),
+          ...(durableRequest.repo === undefined
+            ? {} : { repo: durableRequest.repo as string }),
+          ...(durableRequest.sandbox_only === undefined
+            ? {} : { sandboxOnly: durableRequest.sandbox_only as boolean }),
           timeoutMs: remaining,
         },
         claimPath: claimed.path, claim, signal, settleLate: settleLateSpawn,
