@@ -178,8 +178,8 @@ export function verifyResponseLossEvidence(stats, audit) {
   assert.equal(stats.droppedSpawnReplyForwardedBytes, 0,
     'no byte of the committed spawn.invoke reply may reach Flows');
   assert(stats.droppedSpawnReply, 'the proxy must drop one successful spawn.invoke reply');
-  assert.equal(stats.spawnInvokeTaskDigests.length, 3,
-    'the committed invoke and exactly two same-key replays must cross the proxy');
+  assert(stats.spawnInvokeTaskDigests.length >= 2,
+    'the committed invoke and at least one same-key replay must cross the proxy');
   assert.equal(stats.spawnInvokeTaskDigests.length, stats.spawnInvokeKeys.length);
   assert.equal(new Set(stats.spawnInvokeTaskDigests).size, 1,
     'every same-key retry must preserve the original task bytes');

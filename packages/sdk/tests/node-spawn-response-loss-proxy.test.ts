@@ -310,12 +310,12 @@ if (mode === 'start') {
   await rpc('spawn.invoke', 1);
   process.exit(99);
 }
-await rpc('spawn.invoke', 1);
 let won = false;
 try { closeSync(openSync(winner, 'wx')); won = true; } catch (error) {
   if (error.code !== 'EEXIST') throw error;
 }
 if (!won) process.exit(3);
+await rpc('spawn.invoke', 1);
 await rpc('spawn.release', 2);
 await rpc('spawn_callers.inbox.ack', 3);
 `);
@@ -360,7 +360,7 @@ await rpc('spawn_callers.inbox.ack', 3);
     const evidence = JSON.parse(readFileSync(join(evidenceDir, 'response-loss-proof.json'), 'utf8'));
     expect(evidence).toMatchObject({
       dropped_response_forwarded_bytes: 0,
-      spawn_invoke_calls: 3,
+      spawn_invoke_calls: 2,
       upstream_spawn_frames: 1,
       workers_created: 1,
       correlated_results: 1,

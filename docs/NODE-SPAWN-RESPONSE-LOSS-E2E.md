@@ -23,6 +23,11 @@ The proxy forwards newline-framed JSON-RPC until it reads the first complete,
 successful `spawn.invoke` reply from the real core. It never writes that line
 downstream. It synchronously sends `SIGKILL` to the foreground Flows process,
 then closes that connection. Later connections pass through unchanged.
+The orchestrator races two resume processes. Correct durable claim ownership
+may coalesce those racers into one physical bridge replay; the verifier requires
+at least one exact same-key replay. The deterministic proxy regression also
+sends two physical same-key replay requests and proves they converge on one
+upstream provider frame.
 
 ## Preconditions
 
