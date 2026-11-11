@@ -31,5 +31,6 @@ process.exitCode = await runCli(process.argv.slice(2), undefined, { version: ${J
   detachedReceipt, selfCommand: [process.execPath] });
 `);
   bun(['build', entry, '--compile', '--target='+target, '--outfile='+resolve(outfile),
-    '--env=disable', '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig']);
+    '--env=disable', '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig',
+    '--compile-autoload-package-json']);
 } finally { await rm(stage, { recursive: true, force: true }); }
