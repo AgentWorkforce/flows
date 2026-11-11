@@ -264,7 +264,7 @@ export async function runCli(
     const link = resolveObserverLinkEnv(process.env);
     if (!link.suppressed && link.workspaceKey === undefined) {
       io.stderr('Observer unavailable: no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
-        + '~/.agentworkforce/relay/workspaces.json for an Observer link, or sign in with agent-relay cloud login for the Cloud dashboard');
+        + '~/.agentworkforce/relay/workspaces.json for an Observer link, or use --cloud-mirror after signing in for the Cloud dashboard');
     }
   }
 
@@ -414,14 +414,15 @@ export async function runCli(
     onObserverUrl: url => options.detachedReceipt?.observerUrl(url),
   });
   const runnerLog: string[] = [];
-  const mirror = createCloudMirrorSession({
+  const mirrorRequested = parsed.cloudMirror || cloudMirrorRequested(process.env);
+  const mirror = mirrorRequested ? createCloudMirrorSession({
       source: parsed.command === 'run'
         ? mirrorSourceFromPath(parsed.value, parsed.input, parsed.dataDir, named)
         : mirrorSourceFromJournal(parsed.dataDir),
       dataDir: parsed.dataDir,
       log: () => runnerLog,
-      requested: parsed.cloudMirror ? 'flag' : cloudMirrorRequested(process.env) ? 'env' : 'login',
-    }, io);
+      requested: parsed.cloudMirror ? 'flag' : 'env',
+    }, io) : undefined;
   // Everything this invocation prints, kept in order, so the mirror can upload
   // it as the run's `runner.log` — the object the dashboard's log pane reads,
   // and the sandbox's own equivalent. A declarative run emits no progress

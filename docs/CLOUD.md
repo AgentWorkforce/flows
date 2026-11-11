@@ -192,17 +192,18 @@ started in a terminal, and it is unchanged.
 The Observer link needs `RELAYCAST_WORKSPACE_KEY` or an active workspace key in
 `~/.agentworkforce/relay/workspaces.json`. When neither is available, a plain
 `flows run` prints one hint: configure a workspace key for the Observer link,
-or sign in with `agent-relay cloud login` for the Cloud dashboard. `--no-observer-link`,
+or use `--cloud-mirror` after signing in for the Cloud dashboard. `--no-observer-link`,
 `FLOWS_NO_OBSERVER=1`, and `--json` suppress that human-facing hint.
 
-Signed-in local runs also appear on the **Cloud dashboard**. The CLI reuses
-`agent-relay cloud login` credentials (or `FLOWS_CLOUD_TOKEN`). Signed-out runs
-print one note and continue locally.
+Local runs appear on the **Cloud dashboard** only when `--cloud-mirror` or
+`FLOWS_CLOUD_MIRROR=1` explicitly requests that projection. The CLI then reuses
+`agent-relay cloud login` credentials (or `FLOWS_CLOUD_TOKEN`). A login by
+itself never uploads a local run.
 
 ```sh
 agent-relay cloud login
 flows deploy review.flow.ts             # save a manual flow without a trigger
-flows run review --input '{"pr":7}'      # resolve your saved flow and run locally
+flows run review --input '{"pr":7}' --cloud-mirror  # resolve, run locally, and mirror
 # Dashboard: https://…/dashboard/workflow/<run>/runner  ·  flows status --cloud --watch <run>
 ```
 
@@ -240,8 +241,8 @@ The dashboard stores the flow source, step metadata, agent transcripts and
 this invocation's output. Reported strings pass through the same redactor as
 `flows status`. Reporting follows only the current run and child journals
 named by its authored-step index. Reporting failures leave local execution and
-the journal unchanged. `--cloud-mirror` and `FLOWS_CLOUD_MIRROR=1` remain explicit
-requests for reporting; signed-in runs report automatically without either.
+the journal unchanged. `--cloud-mirror` and `FLOWS_CLOUD_MIRROR=1` are the only
+requests for reporting; being signed in is authentication, not consent to upload.
 
 The terminal line names Cloud's run id as well as the page, because the
 report's own `runId` is the *journal's* and every hosted read verb (`flows

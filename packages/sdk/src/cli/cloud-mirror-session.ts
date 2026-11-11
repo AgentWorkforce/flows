@@ -1,5 +1,6 @@
-// Signed-in local runs project their journal onto the Cloud dashboard.
-// Reporting is best-effort and never changes the durable run outcome.
+// Local runs project their journal onto the Cloud dashboard only when the
+// invocation explicitly opts in. Reporting is best-effort and never changes
+// the durable run outcome.
 
 import { readFile } from 'node:fs/promises';
 import type { CliIo } from '../cli.js';
@@ -61,7 +62,7 @@ export interface CloudMirrorRequest {
   /** Lines the CLI has printed for this run, uploaded as the run's `runner.log`. */
   log: () => readonly string[];
   /** How the dashboard was asked for, so a refusal can name the right switch. */
-  requested: 'flag' | 'env' | 'login';
+  requested: 'flag' | 'env';
 }
 
 /**
@@ -293,13 +294,7 @@ function completionReport(report: RunReport): Record<string, unknown> {
  * missing-login case is the common one and names the two commands that fix
  * it: sign in, or stop asking.
  */
-function mirrorRefusal(error: unknown, requested: 'flag' | 'env' | 'login'): string {
-  if (requested === 'login') {
-    if (error instanceof CloudFlowError && error.reason === 'auth_missing') {
-      return 'Not signed in; this run stays local. Sign in with `agent-relay cloud login` to report runs.';
-    }
-    return `Local run reporting unavailable: ${error instanceof Error ? error.message : String(error)}; the run itself is unaffected.`;
-  }
+function mirrorRefusal(error: unknown, requested: 'flag' | 'env'): string {
   const asked = requested === 'flag' ? '--cloud-mirror' : `${MIRROR_ENV}=1`;
   if (error instanceof CloudFlowError && error.code === 'configuration') {
     return error.reason === 'auth_missing'
