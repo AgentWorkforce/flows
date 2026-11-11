@@ -2,7 +2,7 @@ import type { Ctx } from '@relayflows/surface';
 import { boundPullRequest, type Admitted, type StandaloneBoundPullRequest, type StandalonePolicy } from './admission.ts';
 import { readState } from './github.ts';
 import { parseInput, record, shellWord, type Config } from './input.ts';
-import { parseOrigin, type WhatChanged } from './origin.ts';
+import { parseOrigin, parseServiceOrigin, type TaskOriginContext, type WhatChanged } from './origin.ts';
 import { readSignalsAt } from './signals.ts';
 import { eligible, type State } from './state.ts';
 import { parseTask, type Task } from './task.ts';
@@ -16,7 +16,7 @@ import { bindHead, observation, type Wake } from './wake.ts';
  * carry neither, and the server chose to act. The PR must still be open.
  * A malformed task stops the run before any live read.
  */
-export type TaskAdmitted = Admitted & { task: Task };
+export type TaskAdmitted = Omit<Admitted, 'origin'> & { origin: TaskOriginContext; task: Task };
 
 /** True when Cloud sent a task at all, valid or not; such a run never falls back to feedback admission. */
 export const hasTask = (value: unknown): boolean => parseTask(value) !== undefined;
@@ -72,7 +72,10 @@ export async function admitTask(
     return stop('needs_human');
   }
   const { wake, deliveryId } = taskDelivery(value, pr, task);
-  const origin = parseOrigin(record(record(value).babysitter).originContext);
+  const rawOrigin = record(record(value).babysitter).originContext;
+  const origin = record(rawOrigin).source === 'merge_train_service'
+    ? task.kind === 'fix_ci' ? parseServiceOrigin(rawOrigin, pr) : undefined
+    : parseOrigin(rawOrigin);
   if (!origin) {
     await report(`${wake.id} delivery=${deliveryId}: no usable origin context; Babysitter will not act without the original scope.`);
     return stop('needs_human');
