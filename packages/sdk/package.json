@@ -64,6 +64,7 @@
   },
   "devDependencies": {
     "@agent-relay/cli-surface": "^12.2.4",
+    "@agent-relay/core-bridge": "18.1.0",
     "@agent-relay/sdk": "17.2.1",
     "@types/node": "^22.7.0",
     "bluebird": "^3.7.2",
