@@ -14,7 +14,7 @@ import {
   type CloudConnectionOptions,
 } from './cloud-http.js';
 import { cloudRunState, isCloudRunActive, type CloudRunState } from './cloud-run-record.js';
-import { canUseCodeCache, packWorkingTree, prepareCloudSync, sha256PackedTree, uploadCloudCode } from './cloud-sync.js';
+import { canUseCodeCache, packWorkingTree, prepareCloudSync, sha256PackedTree, uploadCloudCode, type PackedTree } from './cloud-sync.js';
 
 export type CloudFlowSource = FlowSpec | { path: string };
 export const MIN_CLOUD_RUN_BUDGET_MINUTES = 30;
@@ -42,10 +42,9 @@ export interface RunInCloudOptions extends CloudConnectionOptions {
    */
   syncCode?: { root: string };
   /**
-   * Called immediately before the one non-idempotent request, the run
-   * submission. Everything before it (prepare, pack, upload) is safe to
-   * retry, so a caller classifying an interruption can tell "nothing was
-   * admitted" from "admission unknown".
+   * Called immediately before the first non-idempotent run submission.
+   * A cache-expiry refusal may trigger one fresh run submission afterward;
+   * the callback is already set for that admission phase.
    */
   onSubmit?: () => void;
   /**
@@ -301,6 +300,7 @@ export async function runInCloud(
   // refused backend or failed upload therefore never leaves a launched run
   // pointing at a tree that is not there.
   let synced: { runId: string; codeKey: string; codeCacheHit: boolean; files: number; bytes: number; skippedLinks: string[] } | undefined;
+  let packedForRecovery: PackedTree | undefined;
   if (options.syncCode !== undefined) {
     options.signal?.throwIfAborted();
     const packed = await packWorkingTree(options.syncCode.root);
@@ -310,31 +310,22 @@ export async function runInCloud(
       const digest = canUseCodeCache(packed) ? await sha256PackedTree(packed) : undefined;
       prepared = await prepareCloudSync(options, digest);
       options.signal?.throwIfAborted();
-      if (!prepared.codeCacheHit) await uploadCloudCode(prepared, packed, options);
-    } finally {
+      if (prepared.codeCacheHit) {
+        packedForRecovery = packed;
+      } else {
+        await uploadCloudCode(prepared, packed, options);
+        packed.dispose();
+      }
+    } catch (error) {
       packed.dispose();
+      throw error;
     }
     synced = { runId: prepared.runId, codeKey: prepared.codeKey, codeCacheHit: prepared.codeCacheHit === true,
       files: packed.files.length, bytes: packed.bytes,
       skippedLinks: packed.skippedLinks };
   }
-  options.signal?.throwIfAborted();
-  options.onSubmit?.();
   let result: unknown;
-  try {
-    // A cache hit is copied into the run prefix after admission. The R2 copy
-    // may outlast the normal 30s request budget; explicit caller limits win.
-    const submitOptions = synced?.codeCacheHit
-      ? { ...options, requestTimeoutMs: options.requestTimeoutMs ?? 300_000 }
-      : options;
-    result = await cloudFetch('/api/v1/workflows/run', submitOptions, { method: 'POST', detail: true, body: JSON.stringify({
-      ...cloudSubmissionBody(submission),
-      ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
-      ...(options.runBudgetMinutes === undefined ? {} : { relayflowV2RunBudgetMinutes: options.runBudgetMinutes }),
-      ...(synced === undefined ? {} : { runId: synced.runId, s3CodeKey: synced.codeKey }),
-      ...(envSecrets === undefined ? {} : { envSecrets }),
-    }) });
-  } catch (caught) {
+  const rewriteRunError = (caught: unknown): unknown => {
     // Withhold first: every error thrown from here, including the rewrite
     // below, carries only a refusal that quotes no envSecrets value.
     const error = withheldIfQuotingSecret(caught, envSecrets);
@@ -344,13 +335,56 @@ export async function runInCloud(
     if (error instanceof CloudFlowError && submission.authoredAuthority !== undefined
       && error.refusal?.code === 'relayflow_v2_authored_authority_invalid') {
       const expected = error.refusal.expected?.version;
-      throw new CloudFlowError('unsupported_source',
+      return new CloudFlowError('unsupported_source',
         `Cloud refused this authored flow's Surface: it runs @relayflows/surface ${expected ?? '(version not reported)'} `
         + `and this CLI authored against ${submission.authoredAuthority.surface.version}. `
         + 'Install the matching relayflows release, or deploy the flow with `flows deploy`, which uses Cloud\'s own Surface.',
         error.status, error.refusal);
     }
-    throw error;
+    return error;
+  };
+  try {
+    options.signal?.throwIfAborted();
+    options.onSubmit?.();
+    const submit = () => {
+      options.signal?.throwIfAborted();
+      // A cache hit is copied into the run prefix after admission. The R2 copy
+      // may outlast the normal 30s request budget; explicit caller limits win.
+      const submitOptions = synced?.codeCacheHit
+        ? { ...options, requestTimeoutMs: options.requestTimeoutMs ?? 300_000 }
+        : options;
+      return cloudFetch('/api/v1/workflows/run', submitOptions, { method: 'POST', detail: true, body: JSON.stringify({
+        ...cloudSubmissionBody(submission),
+        ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
+        ...(options.runBudgetMinutes === undefined ? {} : { relayflowV2RunBudgetMinutes: options.runBudgetMinutes }),
+        ...(synced === undefined ? {} : { runId: synced.runId, s3CodeKey: synced.codeKey }),
+        ...(envSecrets === undefined ? {} : { envSecrets }),
+      }) });
+    };
+    try {
+      result = await submit();
+    } catch (caught) {
+      const error = rewriteRunError(caught);
+      if (!(error instanceof CloudFlowError && error.status === 503
+        && error.refusal?.code === 'workflow_code_unavailable'
+        && synced?.codeCacheHit && packedForRecovery)) throw error;
+      // The original run was terminalized by Cloud. A new prepare gives this
+      // archive a new run prefix; omitting the digest forces a real upload.
+      try {
+        const prepared = await prepareCloudSync(options);
+        options.signal?.throwIfAborted();
+        if (prepared.runId === synced.runId) {
+          throw new CloudFlowError('invalid_response', 'Cloud prepare reused a terminalized run ID.');
+        }
+        await uploadCloudCode(prepared, packedForRecovery, options);
+        synced = { ...synced, runId: prepared.runId, codeKey: prepared.codeKey, codeCacheHit: false };
+        result = await submit(); // exactly one recovery attempt
+      } catch (recoveryError) {
+        throw rewriteRunError(recoveryError);
+      }
+    }
+  } finally {
+    packedForRecovery?.dispose();
   }
   if (!isCloudRecord(result) || (result.status !== 'pending' && result.status !== 'running')) {
     throw new CloudFlowError('invalid_response', 'Cloud did not return an accepted run.');
