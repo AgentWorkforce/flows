@@ -208,6 +208,13 @@ async function main() {
       }),
     ]);
     const resumeResults = [left.result, right.result];
+    const replayPids = [left.child.pid, right.child.pid];
+    assert(replayPids.every(pid => Number.isSafeInteger(pid) && pid > 0),
+      'both replay process ids must be available');
+    assert.equal(new Set(replayPids).size, 2,
+      'the replay race must use two independent process generations');
+    assert(!replayPids.includes(firstChild.pid),
+      'neither replay may reuse the killed foreground process generation');
     assert(resumeResults.some(result => result.code === 0),
       'at least one raced resume must complete successfully');
     assert(resumeResults.every(result => result.signal === null),
@@ -241,6 +248,10 @@ async function main() {
     const evidence = {
       ...summary,
       run_id: runId,
+      process_generations: {
+        initial_pid: firstChild.pid,
+        replay_pids: replayPids,
+      },
       resume_exit_codes: resumeResults.map(result => result.code),
       core_bridge_version: coreBridgeVersion,
     };

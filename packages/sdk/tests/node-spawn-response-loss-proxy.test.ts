@@ -155,6 +155,7 @@ describe('Core Bridge response-loss proof proxy', () => {
       workers_created: 1,
       correlated_results: 1,
       releases: 1,
+      final_claim: { result_present: true, release_confirmed: true, cleanup_pending: false },
       target_capacity: { active_agents: 0, reserved_agents: 0 },
       journal_terminal_sequence: 10,
       inbox_settlement_sequence: 11,
@@ -183,6 +184,7 @@ describe('Core Bridge response-loss proof proxy', () => {
       workers_created: 1,
       correlated_results: 1,
       releases: 1,
+      final_claim: { result_present: true, release_confirmed: true, cleanup_pending: false },
       target_capacity: { active_agents: 0, reserved_agents: 0 },
       journal_terminal_sequence: 10,
       inbox_settlement_sequence: 11,
@@ -211,6 +213,7 @@ describe('Core Bridge response-loss proof proxy', () => {
       workers_created: 1,
       correlated_results: 1,
       releases: 1,
+      final_claim: { result_present: true, release_confirmed: true, cleanup_pending: false },
       target_capacity: { active_agents: 0, reserved_agents: 0 },
       journal_terminal_sequence: 10,
       inbox_settlement_sequence: 11,
@@ -230,6 +233,10 @@ describe('Core Bridge response-loss proof proxy', () => {
         after: { identity: 'unrelated-1', count: 0 },
       },
     })).toThrow('unrelated reservation');
+    expect(() => module.verifyResponseLossEvidence(stats, {
+      ...audit,
+      final_claim: { ...audit.final_claim, result_present: false },
+    })).toThrow('retain its correlated result');
   });
 
   it('rejects ar_ credentials in captured proof logs', async () => {
@@ -342,6 +349,7 @@ await rpc('spawn_callers.inbox.ack', 3);
   workers_created: 1,
   correlated_results: 1,
   releases: 1,
+  final_claim: { result_present: true, release_confirmed: true, cleanup_pending: false },
   target_capacity: { active_agents: 0, reserved_agents: 0 },
   journal_terminal_sequence: 10,
   inbox_settlement_sequence: 11,
@@ -376,12 +384,21 @@ await rpc('spawn_callers.inbox.ack', 3);
       workers_created: 1,
       correlated_results: 1,
       releases: 1,
+      final_claim: { result_present: true, release_confirmed: true, cleanup_pending: false },
       target_capacity: { active_agents: 0, reserved_agents: 0 },
       unrelated_reservation: {
         before: { identity: 'unrelated-1', count: 1 },
         after: { identity: 'unrelated-1', count: 1 },
       },
+      process_generations: {
+        initial_pid: expect.any(Number),
+        replay_pids: [expect.any(Number), expect.any(Number)],
+      },
     });
+    expect(new Set(evidence.process_generations.replay_pids).size).toBe(2);
+    expect(evidence.process_generations.replay_pids).not.toContain(
+      evidence.process_generations.initial_pid,
+    );
     expect(upstream.upstreamSpawnFrames()).toBe(1);
   }, 20_000);
 });

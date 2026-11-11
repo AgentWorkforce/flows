@@ -198,6 +198,12 @@ export function verifyResponseLossEvidence(stats, audit) {
   assert.equal(audit.workers_created, 1);
   assert.equal(audit.correlated_results, 1);
   assert.equal(audit.releases, 1);
+  assert.equal(audit.final_claim?.result_present, true,
+    'the final durable claim must retain its correlated result');
+  assert.equal(audit.final_claim?.release_confirmed, true,
+    'the final durable claim must retain its confirmed release');
+  assert.equal(audit.final_claim?.cleanup_pending, false,
+    'the final durable claim must not retain pending cleanup');
   assert.equal(audit.target_capacity?.active_agents, 0);
   assert.equal(audit.target_capacity?.reserved_agents, 0);
   assert.equal(typeof audit.journal_terminal_sequence, 'number');
@@ -222,6 +228,7 @@ export function verifyResponseLossEvidence(stats, audit) {
     workers_created: audit.workers_created,
     correlated_results: audit.correlated_results,
     releases: audit.releases,
+    final_claim: audit.final_claim,
     target_capacity: audit.target_capacity,
     unrelated_reservation: audit.unrelated_reservation,
     journal_terminal_sequence: audit.journal_terminal_sequence,

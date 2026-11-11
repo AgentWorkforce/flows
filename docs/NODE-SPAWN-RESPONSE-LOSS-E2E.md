@@ -23,7 +23,8 @@ The proxy forwards newline-framed JSON-RPC until it reads the first complete,
 successful `spawn.invoke` reply from the real core. It never writes that line
 downstream. It synchronously sends `SIGKILL` to the foreground Flows process,
 then closes that connection. Later connections pass through unchanged.
-The orchestrator races two resume processes. Correct durable claim ownership
+The orchestrator races two independent OS process generations after the initial
+generation is killed. Correct durable claim ownership
 may coalesce those racers into one physical bridge replay; the verifier requires
 at least one exact same-key replay. The deterministic proxy regression also
 sends two physical same-key replay requests and proves they converge on one
@@ -87,6 +88,11 @@ The audit command stdout contract is:
   "workers_created": 1,
   "correlated_results": 1,
   "releases": 1,
+  "final_claim": {
+    "result_present": true,
+    "release_confirmed": true,
+    "cleanup_pending": false
+  },
   "target_capacity": { "active_agents": 0, "reserved_agents": 0 },
   "journal_terminal_sequence": 41,
   "inbox_settlement_sequence": 42,
@@ -134,6 +140,8 @@ The proof passes only when all of these are true:
 - the real provider saw one spawn frame and created one worker;
 - one correlated result was journaled before one inbox settlement;
 - exactly one release completed;
+- after both independent replay processes settled, the final durable claim
+  still retained that result and confirmed release with no cleanup pending;
 - target active and reserved capacity returned to zero; and
 - the unrelated reservation identity and count stayed unchanged.
 
