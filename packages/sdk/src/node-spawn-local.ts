@@ -176,6 +176,19 @@ const REQUIRED_CORE_BRIDGE_METHODS = {
 
 const loadedCoreBridges = new WeakSet<object>();
 const LOCAL_FENCED_REPLAY = Symbol('LocalNodeSpawnPort.fencedReplay');
+const LOCAL_STATE_IS_EXACT = Symbol('LocalNodeSpawnPort.stateIsExact');
+
+interface LocalNodeSpawnState {
+  core: CoreBridgeClient;
+  bridge: Pick<CoreBridgeApi, 'spawnTargets' | 'spawnInvoke' | 'spawnStatus' | 'spawnRelease'>;
+  scope: Pick<CallerDescriptor, 'harnesses' | 'directoryScope'>;
+  exactNode: { readonly id: string; readonly name: string };
+  bridgeMethods: readonly unknown[];
+  exactNodeId: string;
+  exactNodeName: string;
+}
+
+const localNodeSpawnStates = new WeakMap<LocalNodeSpawnPort, LocalNodeSpawnState>();
 
 /** Fails before local admission when an installed optional bridge lacks the required contract. */
 export function assertCoreBridgeApi(value: unknown): asserts value is CoreBridgeApi {
@@ -213,14 +226,17 @@ export async function loadCoreBridge(): Promise<CoreBridgeApi> {
 }
 
 /** Enables replay only for the exact bridge module admitted by loadCoreBridge(). */
-export function enableLoadedCoreBridgeReplay(
+export function enableLoadedCoreBridgeCapabilities(
   port: LocalNodeSpawnPort,
   bridge: CoreBridgeApi,
 ): void {
   if (!loadedCoreBridges.has(bridge)) return;
+  const validateState = (): boolean => port[LOCAL_STATE_IS_EXACT]();
+  registerRetryablePreflightPort(port, LOCAL_NODE_SPAWN_IDENTITY, validateState);
   registerReplayableFencedPort(
     port,
     LOCAL_NODE_SPAWN_IDENTITY,
+    validateState,
     (request, beforeDispatch) => port[LOCAL_FENCED_REPLAY](request, beforeDispatch),
   );
 }
@@ -235,7 +251,35 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     private readonly scope: Pick<CallerDescriptor, 'harnesses' | 'directoryScope'>,
     private readonly exactNode: { readonly id: string; readonly name: string },
   ) {
-    registerRetryablePreflightPort(this, LOCAL_NODE_SPAWN_IDENTITY);
+    localNodeSpawnStates.set(this, {
+      core,
+      bridge,
+      scope,
+      exactNode,
+      bridgeMethods: [
+        bridge.spawnTargets,
+        bridge.spawnInvoke,
+        bridge.spawnStatus,
+        bridge.spawnRelease,
+      ],
+      exactNodeId: exactNode.id,
+      exactNodeName: exactNode.name,
+    });
+  }
+
+  private [LOCAL_STATE_IS_EXACT](): boolean {
+    const state = localNodeSpawnStates.get(this);
+    return state !== undefined
+      && this.core === state.core
+      && this.bridge === state.bridge
+      && this.scope === state.scope
+      && this.exactNode === state.exactNode
+      && this.exactNode.id === state.exactNodeId
+      && this.exactNode.name === state.exactNodeName
+      && this.bridge.spawnTargets === state.bridgeMethods[0]
+      && this.bridge.spawnInvoke === state.bridgeMethods[1]
+      && this.bridge.spawnStatus === state.bridgeMethods[2]
+      && this.bridge.spawnRelease === state.bridgeMethods[3];
   }
 
   async targets(): Promise<NodeSpawnTarget[]> {

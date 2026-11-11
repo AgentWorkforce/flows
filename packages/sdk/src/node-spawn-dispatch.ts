@@ -25,10 +25,16 @@ interface ExactPortIdentity {
 
 interface ReplayableFencedRegistration {
   identity: ExactPortIdentity;
+  validateState: () => boolean;
   replay: NodeSpawnPort['spawn'];
 }
 
-const retryablePreflightPorts = new WeakMap<NodeSpawnPort, ExactPortIdentity>();
+interface ExactPortRegistration {
+  identity: ExactPortIdentity;
+  validateState: () => boolean;
+}
+
+const retryablePreflightPorts = new WeakMap<NodeSpawnPort, ExactPortRegistration>();
 const replayableFencedPorts = new WeakMap<NodeSpawnPort, ReplayableFencedRegistration>();
 
 /**
@@ -39,18 +45,22 @@ const replayableFencedPorts = new WeakMap<NodeSpawnPort, ReplayableFencedRegistr
 export function registerRetryablePreflightPort(
   port: NodeSpawnPort,
   identity: ExactPortIdentity,
+  validateState: () => boolean,
 ): void {
-  if (hasExactPortMethods(port, identity)) retryablePreflightPorts.set(port, identity);
+  if (hasExactPortMethods(port, identity) && validateState()) {
+    retryablePreflightPorts.set(port, { identity, validateState });
+  }
 }
 
 /** Registers an internal handler whose server contract replays a fenced dispatch by idempotency key. */
 export function registerReplayableFencedPort(
   port: NodeSpawnPort,
   identity: ExactPortIdentity,
+  validateState: () => boolean,
   replay: NodeSpawnPort['spawn'],
 ): void {
-  if (hasExactPortMethods(port, identity)) {
-    replayableFencedPorts.set(port, { identity, replay });
+  if (hasExactPortMethods(port, identity) && validateState()) {
+    replayableFencedPorts.set(port, { identity, validateState, replay });
   }
 }
 
@@ -60,15 +70,19 @@ export function hasReplayableFencedDispatch(port: NodeSpawnPort): boolean {
 }
 
 function hasRetryablePreflight(port: NodeSpawnPort): boolean {
-  const identity = retryablePreflightPorts.get(port);
-  return identity !== undefined && hasExactPortMethods(port, identity);
+  const registration = retryablePreflightPorts.get(port);
+  return registration !== undefined
+    && hasExactPortMethods(port, registration.identity)
+    && registration.validateState();
 }
 
 function replayableFencedRegistration(
   port: NodeSpawnPort,
 ): ReplayableFencedRegistration | undefined {
   const registration = replayableFencedPorts.get(port);
-  return registration !== undefined && hasExactPortMethods(port, registration.identity)
+  return registration !== undefined
+    && hasExactPortMethods(port, registration.identity)
+    && registration.validateState()
     ? registration : undefined;
 }
 

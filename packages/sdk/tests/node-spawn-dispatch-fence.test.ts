@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runAgentRelayTask, type AgentRelayTaskRequest } from '../src/agent-relay-transport.js';
+import { registerRetryablePreflightPort } from '../src/node-spawn-dispatch.js';
 import { LocalNodeSpawnPort, type CoreBridgeClient } from '../src/node-spawn-local.js';
 import { NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
 import type { NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
@@ -13,6 +14,13 @@ import { NodeSpawnError, NodeSpawnPreDispatchError,
   type NodeSpawnPort, type NodeSpawnReceipt } from '../src/index.js';
 
 const roots: string[] = [];
+const TEST_LOCAL_IDENTITY = {
+  prototype: LocalNodeSpawnPort.prototype,
+  spawn: LocalNodeSpawnPort.prototype.spawn,
+  targets: LocalNodeSpawnPort.prototype.targets,
+  status: LocalNodeSpawnPort.prototype.status,
+  release: LocalNodeSpawnPort.prototype.release,
+};
 
 afterEach(async () => {
   vi.useRealTimers();
@@ -36,7 +44,7 @@ function request(dataDir: string, timeoutMs = 10_000): AgentRelayTaskRequest {
 function officialLocalRuntime(options: {
   eligible(): boolean;
   invoked(name: string): void;
-}): NodeSpawnRuntime {
+}, registerInternalPreflight = true): NodeSpawnRuntime {
   const core: CoreBridgeClient = {
     hello: {
       bridge_version: 1,
@@ -87,14 +95,18 @@ function officialLocalRuntime(options: {
       released: true,
     })),
   };
+  const port = new LocalNodeSpawnPort(core, bridge, {
+    harnesses: ['codex'],
+    directoryScope: ['/tmp'],
+  }, { id: 'node_1', name: 'desktop-1' });
+  if (registerInternalPreflight) {
+    registerRetryablePreflightPort(port, TEST_LOCAL_IDENTITY, () => true);
+  }
   return {
     authority: 'desktop',
     publisher: { id: 'publisher_1', name: 'flows-publisher' },
     baseUrl: 'https://cast.agentrelay.com',
-    port: new LocalNodeSpawnPort(core, bridge, {
-      harnesses: ['codex'],
-      directoryScope: ['/tmp'],
-    }, { id: 'node_1', name: 'desktop-1' }),
+    port,
     inbox: { inbox: {
       subscribe: async function* () {
         yield { id: 'delivery_1', message: { id: 'message_1',
@@ -197,6 +209,44 @@ describe('durable node-spawn dispatch fence', () => {
       .rejects.toThrow('ambiguous pre-ack');
     expect(fenceAtEntry).toBe(true);
     expect(calls).toBe(1);
+  });
+
+  it('never replays an injected local bridge after a lost non-idempotent reply', async () => {
+    const dataDir = await dataDirectory('flows-dispatch-fence-injected-local-');
+    let workersCreated = 0;
+    const worker = officialLocalRuntime({
+      eligible: () => true,
+      invoked() {
+        workersCreated += 1;
+        throw new Error('lost reply after non-idempotent create');
+      },
+    }, false);
+
+    await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
+      .rejects.toThrow('lost reply after non-idempotent create');
+    await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
+      .rejects.toThrow('ambiguous pre-ack');
+    expect(workersCreated).toBe(1);
+  });
+
+  it('never grants retryable target preflight to an injected local bridge', async () => {
+    const dataDir = await dataDirectory('flows-dispatch-fence-injected-preflight-');
+    let eligible = false;
+    let workersCreated = 0;
+    const worker = officialLocalRuntime({
+      eligible: () => eligible,
+      invoked() { workersCreated += 1; },
+    }, false);
+
+    await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
+      .rejects.toThrow('No eligible local Agent Relay spawn target');
+    const [claim] = await readNodeSpawnClaims(dataDir);
+    await expect(readFile(nodeSpawnDispatchFencePath(claim!.path), 'utf8'))
+      .resolves.toContain('claimDigest');
+    eligible = true;
+    await expect(runAgentRelayTask(request(dataDir), { runtime: worker }))
+      .rejects.toThrow('ambiguous pre-ack');
+    expect(workersCreated).toBe(0);
   });
 
   it('rejects an old public custom port before it creates a claim or invokes', async () => {

@@ -54,8 +54,9 @@ Ports must declare `dispatchFenceVersion: 1` and accept the supplied
 side-effect-free, so it durably fences a custom port before entering `spawn`;
 any error from that call is permanently ambiguous and is not retried. Calling
 `beforeDispatch` remains required for forward compatibility and is idempotent
-after that fence. `NodeSpawnPreDispatchError` preserves retry only for the SDK's
-exact built-in local implementation, whose target preflight is audited;
+after that fence. `NodeSpawnPreDispatchError` preserves retry only for the SDK
+runtime built from its internally loaded Core Bridge module and exact local
+method/state identity, whose target preflight is audited;
 it does not reopen any other port's fenced claim. Existing one-argument `spawn`
 methods must be migrated even though JavaScript permits them to ignore the
 callback. The required version field makes an unchanged port a type error, and

@@ -79,7 +79,8 @@ and accept the supplied `beforeDispatch` callback. Because Flows cannot audit
 arbitrary port code, it publishes and fsyncs the fence before entering a custom
 `spawn`; an error from that call is permanently ambiguous and cannot be retried.
 The callback remains part of the protocol and is idempotent after publication.
-Only the SDK's exact built-in local lifecycle method set may use
+Only the SDK runtime constructed from its internally loaded Core Bridge module
+and exact built-in local lifecycle method/state set may use
 `NodeSpawnPreDispatchError` to retain retryable target preflight. Replacing or
 overriding a relevant method removes the narrow trust and fences it before entry.
 Existing one-argument `spawn` implementations are not compatible

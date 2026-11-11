@@ -449,6 +449,7 @@ writeFileSync(join(dataDir, 'node-spawns', 'b'.repeat(64) + '.json'), JSON.strin
         'remote_fleet_lifecycle',
       ],
     });
+    expect(evidence).not.toHaveProperty('unrelated_reservation');
     expect(new Set(evidence.process_generations.replay_pids).size).toBe(2);
     expect(evidence.process_generations.replay_pids).not.toContain(
       evidence.process_generations.initial_pid,

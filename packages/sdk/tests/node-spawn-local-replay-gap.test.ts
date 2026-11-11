@@ -225,4 +225,13 @@ describe('official local strict replay', () => {
       expect(hasReplayableFencedDispatch(runtime.port)).toBe(false);
     },
   );
+
+  it.each(['core', 'bridge', 'scope', 'exactNode'] as const)(
+    'revokes replay trust when authentic port state %s is replaced', async field => {
+      const runtime = await createLocalNodeSpawnRuntime('/tmp/caller.json');
+      expect(hasReplayableFencedDispatch(runtime.port)).toBe(true);
+      Object.defineProperty(runtime.port, field, { value: {}, configurable: true });
+      expect(hasReplayableFencedDispatch(runtime.port)).toBe(false);
+    },
+  );
 });
