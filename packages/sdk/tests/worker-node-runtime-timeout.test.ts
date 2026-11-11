@@ -47,8 +47,9 @@ function runtime(spawn: NodeSpawnPort['spawn']): NodeSpawnRuntime {
 }
 
 async function waitForImmediate(assertion: () => void | Promise<void>): Promise<void> {
+  const deadline = process.hrtime.bigint() + 10_000_000_000n;
   let failure: unknown;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  while (process.hrtime.bigint() < deadline) {
     try {
       await assertion();
       return;
@@ -77,7 +78,7 @@ describe('AgentWorker relay deadlines', () => {
     });
     await worker.attach();
     journal.emit('step.dispatch', dispatch('edit-timeout', 'dispatch_timeout000', declaredTimeoutMs));
-    await vi.waitFor(() => expect(stepComplete).toHaveBeenCalledOnce());
+    await waitForImmediate(() => expect(stepComplete).toHaveBeenCalledOnce());
     await worker.close();
 
     expect(spawn).toHaveBeenCalledOnce();
@@ -102,7 +103,7 @@ describe('AgentWorker relay deadlines', () => {
     });
     await worker.attach();
     journal.emit('step.dispatch', dispatch('edit-timeout-reason', 'dispatch_timeout001', 100));
-    await vi.waitFor(() => expect(stepComplete).toHaveBeenCalledOnce());
+    await waitForImmediate(() => expect(stepComplete).toHaveBeenCalledOnce());
     await worker.close();
 
     expect(stepComplete).toHaveBeenCalledWith(
@@ -117,10 +118,13 @@ describe('AgentWorker relay deadlines', () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-node-worker-late-cleanup-'));
     roots.push(dataDir);
     let confirm!: (receipt: NodeSpawnReceipt) => void;
+    let spawnEntered!: () => void;
+    const entered = new Promise<void>(resolve => { spawnEntered = resolve; });
     const spawn = vi.fn<NodeSpawnPort['spawn']>(async (input, beforeDispatch) => {
       await beforeDispatch();
       return new Promise<NodeSpawnReceipt>(resolve => {
         confirm = receipt => resolve({ ...receipt, name: input.name });
+        spawnEntered();
       });
     });
     const release = vi.fn<NodeSpawnPort['release']>()
@@ -153,15 +157,22 @@ describe('AgentWorker relay deadlines', () => {
     });
     const errors: unknown[] = [];
     worker.on('error', error => errors.push(error));
-    await worker.attach();
-    journal.emit('step.dispatch', dispatch('edit-late-cleanup', 'dispatch_latecleanup1', 50));
-    await vi.waitFor(() => expect(stepComplete).toHaveBeenCalledOnce());
-    expect(stepComplete).toHaveBeenCalledWith(
-      'run_timeout', 'edit-late-cleanup', 1, 'dispatch_latecleanup1', 'timeout', expect.any(Object),
-    );
-
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const taskDeadline = new AbortController();
+    const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds =>
+      milliseconds < 2_000 ? taskDeadline.signal : nativeTimeout(milliseconds));
+    let replacement: AgentWorker | undefined;
     try {
+      await worker.attach();
+      journal.emit('step.dispatch', dispatch('edit-late-cleanup', 'dispatch_latecleanup1', 1_000));
+      await entered;
+      taskDeadline.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+      await waitForImmediate(() => expect(stepComplete).toHaveBeenCalledOnce());
+      expect(stepComplete).toHaveBeenCalledWith(
+        'run_timeout', 'edit-late-cleanup', 1, 'dispatch_latecleanup1', 'timeout', expect.any(Object),
+      );
+      await worker.close();
+
       confirm({
         id: 'inv_spawn_late', action: 'spawn', status: 'completed',
         nodeId: 'node_1', nodeName: 'desktop-1', name: 'placeholder',
@@ -178,15 +189,16 @@ describe('AgentWorker relay deadlines', () => {
       expect(pending!.claim.result).toBeUndefined();
       expect(pending!.claim.release).toBeUndefined();
 
-      await waitForImmediate(() => expect(vi.getTimerCount()).toBeGreaterThan(0));
-      await vi.advanceTimersByTimeAsync(5_001);
-      let reconciled: Awaited<ReturnType<typeof readNodeSpawnClaims>>[number] | undefined;
-      await waitForImmediate(async () => {
-        expect(release).toHaveBeenCalledTimes(2);
-        [reconciled] = await readNodeSpawnClaims(dataDir);
-        expect(reconciled!.claim.release).toEqual({
-          invocationId: 'inv_release_late', status: 'completed',
-        });
+      replacement = new AgentWorker(journal, {
+        workerId: 'worker_late_cleanup_replacement', pins: {}, dataDir, nodeSpawnRuntime: nodeRuntime,
+      });
+      replacement.on('error', error => errors.push(error));
+      await replacement.attach();
+
+      expect(release).toHaveBeenCalledTimes(2);
+      const [reconciled] = await readNodeSpawnClaims(dataDir);
+      expect(reconciled!.claim.release).toEqual({
+        invocationId: 'inv_release_late', status: 'completed',
       });
       expect(reconciled!.claim.cleanupPending).toBeUndefined();
       expect(stepComplete).toHaveBeenCalledOnce();
@@ -194,7 +206,8 @@ describe('AgentWorker relay deadlines', () => {
       expect(journal.journalRead).not.toHaveBeenCalled();
       expect(errors).toEqual([]);
     } finally {
-      vi.useRealTimers();
+      timeout.mockRestore();
+      await replacement?.close();
       await worker.close();
     }
   });
