@@ -121,6 +121,39 @@ async function run(command: string, args: string[], cwd: string) {
   return { code, signal, stdout, stderr };
 }
 
+function writeConsumerFixture(root: string, cliSource: string) {
+  const consumerRoot = join(root, 'consumer');
+  const sdkRoot = join(consumerRoot, 'node_modules', '@relayflows', 'sdk');
+  const bridgeRoot = join(consumerRoot, 'node_modules', '@agent-relay', 'core-bridge');
+  const cliPath = join(sdkRoot, 'dist', 'cli.js');
+  mkdirSync(join(sdkRoot, 'dist'), { recursive: true });
+  mkdirSync(bridgeRoot, { recursive: true });
+  chmodSync(consumerRoot, 0o700);
+  writeFileSync(join(consumerRoot, 'package.json'), JSON.stringify({
+    name: 'response-loss-consumer', private: true,
+  }));
+  writeFileSync(join(consumerRoot, 'package-lock.json'), JSON.stringify({
+    name: 'response-loss-consumer', lockfileVersion: 3,
+  }));
+  writeFileSync(join(sdkRoot, 'package.json'), JSON.stringify({
+    name: '@relayflows/sdk', version: '2.0.66', type: 'module',
+    main: './dist/index.js', bin: { flows: './dist/cli.js' },
+  }));
+  writeFileSync(join(sdkRoot, 'dist', 'index.js'), 'export {};\n');
+  writeFileSync(cliPath, cliSource);
+  writeFileSync(join(bridgeRoot, 'package.json'), JSON.stringify({
+    name: '@agent-relay/core-bridge', version: '18.1.0', type: 'module', main: './index.js',
+  }));
+  writeFileSync(join(bridgeRoot, 'index.js'), `
+import { readFile } from 'node:fs/promises';
+export async function readCallerDescriptor(path) {
+  const value = JSON.parse(await readFile(path, 'utf8'));
+  return { socket: value.socket };
+}
+`);
+  return { consumerRoot, cliPath };
+}
+
 async function localEvidenceFixture() {
   const proxy = await import(moduleUrl) as ProxyModule;
   const identity = {
@@ -261,6 +294,46 @@ describe('Core Bridge response-loss proof proxy', () => {
     await expect(runner.assertSecretFree([log])).rejects.toThrow('credential-shaped material');
   });
 
+  it('binds both commands to the exact SDK CLI resolved from consumerRoot', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'flows-response-loss-consumer-'));
+    roots.push(root);
+    const { consumerRoot, cliPath } = writeConsumerFixture(root, 'export {};\n');
+    const outside = join(root, 'outside.mjs');
+    writeFileSync(outside, 'export {};\n');
+    const runner = await import(runnerModuleUrl) as {
+      resolveConsumerArtifacts(root: string): Promise<{
+        sdkCliPath: string;
+        evidence: Record<string, unknown>;
+      }>;
+      assertConsumerCommand(
+        spec: { command: string; args: string[] },
+        label: string,
+        artifacts: { sdkCliPath: string },
+      ): Promise<void>;
+    };
+    const artifacts = await runner.resolveConsumerArtifacts(consumerRoot);
+    await expect(runner.assertConsumerCommand({
+      command: process.execPath, args: [cliPath, 'run'],
+    }, 'start', artifacts)).resolves.toBeUndefined();
+    await expect(runner.assertConsumerCommand({
+      command: process.execPath, args: [outside, 'run'],
+    }, 'start', artifacts)).rejects.toThrow(
+      'must launch the exact @relayflows/sdk CLI from consumerRoot',
+    );
+    expect(artifacts.evidence).toMatchObject({
+      consumer_lock_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      relayflows_sdk: {
+        version: '2.0.66',
+        tree_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        cli_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+      core_bridge: {
+        version: '18.1.0',
+        tree_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+    });
+  });
+
   it('uses the default timeout for killed-child and two-resume acceptance orchestration', async () => {
     const root = mkdtempSync(join(tmpdir(), 'flows-response-loss-runner-'));
     roots.push(root);
@@ -310,8 +383,7 @@ describe('Core Bridge response-loss proof proxy', () => {
     })}\n`, { mode: 0o600 });
     chmodSync(callerFile, 0o600);
 
-    const childScript = join(root, 'fake-flows.mjs');
-    writeFileSync(childScript, `
+    const childSource = `
 import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { join } from 'node:path';
@@ -402,16 +474,18 @@ const claim = {
 };
 mkdirSync(join(dataDir, 'node-spawns'), { recursive: true });
 writeFileSync(join(dataDir, 'node-spawns', 'b'.repeat(64) + '.json'), JSON.stringify(claim), { mode: 0o600 });
-`);
+`;
+    const { consumerRoot, cliPath } = writeConsumerFixture(root, childSource);
     const config = join(root, 'config.json');
     writeFileSync(config, `${JSON.stringify({
       callerFile,
+      consumerRoot,
       dataDir,
       evidenceDir,
       homeDir,
       workDir,
-      start: { command: process.execPath, args: [childScript, 'start', dataDir, join(root, 'winner')] },
-      resume: { command: process.execPath, args: [childScript, 'resume', dataDir, join(root, 'winner'), '{RUN_ID}'] },
+      start: { command: process.execPath, args: [cliPath, 'start', dataDir, join(root, 'winner')] },
+      resume: { command: process.execPath, args: [cliPath, 'resume', dataDir, join(root, 'winner'), '{RUN_ID}'] },
     })}\n`, { mode: 0o600 });
 
     const result = await run(process.execPath, [
@@ -429,6 +503,18 @@ writeFileSync(join(dataDir, 'node-spawns', 'b'.repeat(64) + '.json'), JSON.strin
       unique_spawn_keys: 1,
       release_calls: 1,
       inbox_settlement_calls: 1,
+      consumer_artifacts: {
+        consumer_lock_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        relayflows_sdk: {
+          version: '2.0.66',
+          tree_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          cli_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+        core_bridge: {
+          version: '18.1.0',
+          tree_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      },
       final_claim: {
         version: 3,
         result_present: true,

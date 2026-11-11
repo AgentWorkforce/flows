@@ -66,6 +66,8 @@ them as such and makes no remote/fleet or server-database claim.
 1. Install dependencies from the exact #707 head and build the SDK.
 2. Pack that SDK and install it with public
    `@agent-relay/core-bridge@18.1.0` in a fresh mode-0700 consumer directory.
+   Keep the generated `package-lock.json`; the kit hashes it and both installed
+   package trees.
 3. Provision a dedicated mode-0600 schema-v2 caller from a plain terminal.
 4. Prepare fresh mode-0700 HOME, evidence, and Flows data directories; the data
    directory must contain no `runs/*.sqlite3`.
@@ -82,6 +84,7 @@ proxy, and injects `RELAYFLOW_SERVICE_CALLER_FILE`.
 ```json
 {
   "callerFile": "/private/proof/caller.json",
+  "consumerRoot": "/private/consumer",
   "dataDir": "/private/proof/flows-data",
   "evidenceDir": "/private/proof/evidence",
   "homeDir": "/private/proof/home",
@@ -97,6 +100,13 @@ proxy, and injects `RELAYFLOW_SERVICE_CALLER_FILE`.
   }
 }
 ```
+
+Both `start.args[0]` and `resume.args[0]` must be the absolute `flows` CLI
+resolved from `consumerRoot/node_modules/@relayflows/sdk`; both commands must
+use the same Node executable that runs the proof kit. The runner rejects an
+arbitrary wrapper, checkout CLI, or CLI from another consumer. It resolves and
+imports Core Bridge from that same consumer root, not from the orchestrator
+checkout.
 
 The orchestrator writes private proxy/process inputs and invokes the executable
 verifier equivalently to:
@@ -131,9 +141,14 @@ It writes mode-0600 logs plus `response-loss-proof.json` under `evidenceDir`.
 Before writing evidence it scans every captured log for caller-secret, token,
 publisher-key, and Relayfile-bearer shapes. Evidence stores spawn identity,
 task, and idempotency-key digests rather than their source values. The runner requires
-the public `@agent-relay/core-bridge@18.1.0` package, runs children with the
-fresh HOME, and removes inherited publisher, workspace, broker, node, and API
-credentials.
+the public `@agent-relay/core-bridge@18.1.0` package from `consumerRoot`, runs
+children with the fresh HOME, and removes inherited publisher, workspace,
+broker, node, and API credentials. The evidence records the consumer lockfile
+SHA-256 plus package-manifest, resolved-entry, complete package-tree, and exact
+SDK CLI SHA-256 receipts for the installed SDK and Core Bridge. These receipts
+bind the local proof to the packages that the launched CLI actually resolves;
+registry provenance and public tarball integrity remain separately reviewed
+release evidence.
 
 Keep #707 draft after the run. Attach the exact source head, packed SDK receipt,
 public Core Bridge receipt, config with private paths redacted, literal commands

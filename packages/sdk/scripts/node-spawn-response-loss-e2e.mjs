@@ -2,12 +2,14 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { closeSync, openSync } from 'node:fs';
 import {
-  chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile,
+  chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile,
 } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -82,12 +84,66 @@ export async function assertSecretFree(paths) {
   }
 }
 
-async function installedPackageVersion(name) {
-  let directory = dirname(fileURLToPath(import.meta.resolve(name)));
+function sha256(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function within(root, candidate) {
+  const path = relative(root, candidate);
+  return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+}
+
+async function packageTreeReceipt(packageDirectory) {
+  const hash = createHash('sha256');
+  let fileCount = 0;
+  const walk = async (directory, prefix = '') => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      if (entry.name === 'node_modules') continue;
+      const path = join(directory, entry.name);
+      const name = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) await walk(path, name);
+      else if (entry.isFile()) {
+        hash.update(name).update('\0').update(await readFile(path)).update('\0');
+        fileCount += 1;
+      } else {
+        throw new Error(`consumer package contains unsupported filesystem entry: ${name}`);
+      }
+    }
+  };
+  await walk(packageDirectory);
+  return { tree_sha256: hash.digest('hex'), file_count: fileCount };
+}
+
+async function installedPackageReceipt(requireFromConsumer, consumerRoot, name) {
+  const entryPath = await realpath(requireFromConsumer.resolve(name));
+  let directory = dirname(entryPath);
   for (;;) {
     try {
-      const document = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'));
-      if (document.name === name && typeof document.version === 'string') return document.version;
+      const manifestPath = join(directory, 'package.json');
+      const manifestBytes = await readFile(manifestPath);
+      const document = JSON.parse(manifestBytes.toString('utf8'));
+      if (document.name === name && typeof document.version === 'string') {
+        const packageDirectory = await realpath(directory);
+        assert(within(consumerRoot, packageDirectory),
+          `${name} must be physically installed beneath consumerRoot`);
+        const tree = await packageTreeReceipt(packageDirectory);
+        return {
+          document,
+          entryPath,
+          packageDirectory,
+          evidence: {
+            name,
+            version: document.version,
+            package_path: relative(consumerRoot, packageDirectory),
+            entry_path: relative(consumerRoot, entryPath),
+            package_json_sha256: sha256(manifestBytes),
+            entry_sha256: sha256(await readFile(entryPath)),
+            ...tree,
+          },
+        };
+      }
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
     }
@@ -95,7 +151,54 @@ async function installedPackageVersion(name) {
     if (parent === directory) break;
     directory = parent;
   }
-  throw new Error(`could not resolve installed ${name} package version`);
+  throw new Error(`could not resolve installed ${name} package from consumerRoot`);
+}
+
+export async function resolveConsumerArtifacts(consumerRoot) {
+  assert.equal(typeof consumerRoot, 'string', 'consumerRoot is required');
+  assert(isAbsolute(consumerRoot), 'consumerRoot must be absolute');
+  const exactRoot = await realpath(consumerRoot);
+  assert.equal((await stat(exactRoot)).mode & 0o777, 0o700,
+    'consumerRoot must be mode 0700');
+  const requireFromConsumer = createRequire(pathToFileURL(join(exactRoot, 'package.json')));
+  const sdk = await installedPackageReceipt(
+    requireFromConsumer, exactRoot, '@relayflows/sdk');
+  const coreBridge = await installedPackageReceipt(
+    requireFromConsumer, exactRoot, '@agent-relay/core-bridge');
+  assert.equal(coreBridge.document.version, '18.1.0',
+    'proof kit requires public @agent-relay/core-bridge@18.1.0 in consumerRoot');
+  const bin = typeof sdk.document.bin === 'string'
+    ? sdk.document.bin : sdk.document.bin?.flows;
+  assert.equal(typeof bin, 'string', 'consumer @relayflows/sdk must expose its flows CLI');
+  const cliPath = await realpath(resolve(sdk.packageDirectory, bin));
+  assert(within(sdk.packageDirectory, cliPath),
+    'consumer @relayflows/sdk CLI must stay inside its package');
+  const lockPath = join(exactRoot, 'package-lock.json');
+  const lockBytes = await readFile(lockPath);
+  return {
+    root: exactRoot,
+    sdkCliPath: cliPath,
+    coreBridgeEntryPath: coreBridge.entryPath,
+    evidence: {
+      consumer_lock_sha256: sha256(lockBytes),
+      relayflows_sdk: {
+        ...sdk.evidence,
+        cli_path: relative(exactRoot, cliPath),
+        cli_sha256: sha256(await readFile(cliPath)),
+      },
+      core_bridge: coreBridge.evidence,
+    },
+  };
+}
+
+export async function assertConsumerCommand(spec, label, artifacts) {
+  assertCommandSpec(spec, label);
+  assert.equal(await realpath(spec.command), await realpath(process.execPath),
+    `${label}.command must be the Node executable running the proof kit`);
+  assert(spec.args.length > 0 && isAbsolute(spec.args[0]),
+    `${label}.args[0] must be the absolute consumer SDK CLI`);
+  assert.equal(await realpath(spec.args[0]), artifacts.sdkCliPath,
+    `${label} must launch the exact @relayflows/sdk CLI from consumerRoot`);
 }
 
 async function main() {
@@ -103,12 +206,15 @@ async function main() {
   assert(configIndex >= 0 && process.argv[configIndex + 1], 'usage: node node-spawn-response-loss-e2e.mjs --config /absolute/config.json');
   const configPath = resolve(process.argv[configIndex + 1]);
   const config = JSON.parse(await readFile(configPath, 'utf8'));
-  for (const field of ['callerFile', 'dataDir', 'evidenceDir', 'homeDir', 'workDir']) {
+  for (const field of [
+    'callerFile', 'consumerRoot', 'dataDir', 'evidenceDir', 'homeDir', 'workDir',
+  ]) {
     assert.equal(typeof config[field], 'string', `${field} is required`);
     assert(isAbsolute(config[field]), `${field} must be absolute`);
   }
-  assertCommandSpec(config.start, 'start');
-  assertCommandSpec(config.resume, 'resume');
+  const consumerArtifacts = await resolveConsumerArtifacts(config.consumerRoot);
+  await assertConsumerCommand(config.start, 'start', consumerArtifacts);
+  await assertConsumerCommand(config.resume, 'resume', consumerArtifacts);
   assert.equal(config.audit, undefined,
     'audit is built into the proof kit; fixture-supplied audit commands are not accepted');
   assert(config.resume.args.some(arg => arg.includes('{RUN_ID}')), 'resume args must contain {RUN_ID}');
@@ -133,9 +239,9 @@ async function main() {
   }
   assert.deepEqual(initialRuns, [], 'proof dataDir must not contain an earlier run');
 
-  const coreBridgeVersion = await installedPackageVersion('@agent-relay/core-bridge');
-  assert.equal(coreBridgeVersion, '18.1.0', 'proof kit requires public @agent-relay/core-bridge@18.1.0');
-  const { readCallerDescriptor } = await import('@agent-relay/core-bridge');
+  const { readCallerDescriptor } = await import(
+    pathToFileURL(consumerArtifacts.coreBridgeEntryPath).href
+  );
   const descriptor = await readCallerDescriptor(config.callerFile);
   const privateDir = await mkdtemp(join(tmpdir(), 'flows-response-loss-private-'));
   await chmod(privateDir, 0o700);
@@ -161,6 +267,8 @@ async function main() {
     'RELAY_NODE_TOKEN',
     'RELAY_WORKSPACE_KEY',
     'RELAY_WORKSPACES_JSON',
+    'NODE_OPTIONS',
+    'NODE_PATH',
   ]) delete childEnv[name];
   let firstChild;
   const proxy = await createBridgeResponseLossProxy({
@@ -265,7 +373,7 @@ async function main() {
     const evidence = {
       ...audit,
       run_id: runId,
-      core_bridge_version: coreBridgeVersion,
+      consumer_artifacts: consumerArtifacts.evidence,
     };
     const evidencePath = join(config.evidenceDir, 'response-loss-proof.json');
     await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
