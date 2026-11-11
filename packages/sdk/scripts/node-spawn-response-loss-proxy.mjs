@@ -10,11 +10,23 @@ const SPAWN_INVOKE = 'spawn.invoke';
 const SPAWN_RELEASE = 'spawn.release';
 const INBOX_ACK = 'spawn_callers.inbox.ack';
 const INBOX_FAIL = 'spawn_callers.inbox.fail';
-const STRICT_CONTRACT = 'relay.spawn.invoke.logical-replay-resume/1';
-const STRICT_REPLAY_CAPABILITY = 'relay.spawn.replay-resume/1';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+export function spawnIdentityDigest(identity) {
+  for (const field of ['invocationId', 'nodeId', 'nodeName', 'name', 'agentId']) {
+    assert.equal(typeof identity?.[field], 'string', `spawn identity ${field} must be a string`);
+    assert(identity[field].length > 0, `spawn identity ${field} must not be empty`);
+  }
+  return sha256(JSON.stringify([
+    identity.invocationId,
+    identity.nodeId,
+    identity.nodeName,
+    identity.name,
+    identity.agentId,
+  ]));
 }
 
 function safeJson(line) {
@@ -121,8 +133,16 @@ export async function createBridgeResponseLossProxy({
         if (typeof reply?.id === 'number') pending.delete(reply.id);
         if (!stats.droppedSpawnReply && request?.method === SPAWN_INVOKE && !reply?.error) {
           const result = typeof reply?.result === 'object' && reply.result !== null ? reply.result : {};
+          const identity = {
+            invocationId: result.id,
+            nodeId: result.node_id,
+            nodeName: request.params.node_name,
+            name: result.name,
+            agentId: result.agent_id,
+          };
           const event = {
             invocationId: typeof result.id === 'string' ? result.id : undefined,
+            spawnIdentityDigest: spawnIdentityDigest(identity),
             responseDigest: sha256(Buffer.concat([line, NEWLINE])),
             responseBytes: line.length + 1,
           };
@@ -174,7 +194,7 @@ export async function createBridgeResponseLossProxy({
   };
 }
 
-export function verifyResponseLossEvidence(stats, audit) {
+export function verifyResponseLossProxyEvidence(stats) {
   assert.equal(stats.droppedSpawnReplyForwardedBytes, 0,
     'no byte of the committed spawn.invoke reply may reach Flows');
   assert(stats.droppedSpawnReply, 'the proxy must drop one successful spawn.invoke reply');
@@ -190,48 +210,17 @@ export function verifyResponseLossEvidence(stats, audit) {
   assert.equal((stats.methodCounts[INBOX_ACK] ?? 0) + (stats.methodCounts[INBOX_FAIL] ?? 0), 1,
     'Flows must settle the correlated inbox item exactly once');
 
-  assert.equal(audit.schema, 'relayflows-node-spawn-response-loss/1');
-  assert.equal(audit.strict_contract, STRICT_CONTRACT);
-  assert.equal(audit.strict_replay_capability, STRICT_REPLAY_CAPABILITY);
-  assert.equal(audit.strict_invocation_committed, true);
-  assert.equal(audit.upstream_spawn_frames, 1);
-  assert.equal(audit.workers_created, 1);
-  assert.equal(audit.correlated_results, 1);
-  assert.equal(audit.releases, 1);
-  assert.equal(audit.final_claim?.result_present, true,
-    'the final durable claim must retain its correlated result');
-  assert.equal(audit.final_claim?.release_confirmed, true,
-    'the final durable claim must retain its confirmed release');
-  assert.equal(audit.final_claim?.cleanup_pending, false,
-    'the final durable claim must not retain pending cleanup');
-  assert.equal(audit.target_capacity?.active_agents, 0);
-  assert.equal(audit.target_capacity?.reserved_agents, 0);
-  assert.equal(typeof audit.journal_terminal_sequence, 'number');
-  assert.equal(typeof audit.inbox_settlement_sequence, 'number');
-  assert(audit.journal_terminal_sequence < audit.inbox_settlement_sequence,
-    'terminal journal evidence must precede inbox settlement');
-  assert.equal(typeof audit.unrelated_reservation?.before?.identity, 'string');
-  assert.equal(typeof audit.unrelated_reservation?.before?.count, 'number');
-  assert.deepEqual(audit.unrelated_reservation.after, audit.unrelated_reservation.before,
-    'the unrelated reservation must remain unchanged');
   return {
-    schema: audit.schema,
-    strict_contract: audit.strict_contract,
-    strict_replay_capability: audit.strict_replay_capability,
-    strict_invocation_committed: audit.strict_invocation_committed,
     dropped_response_bytes: stats.droppedSpawnReply.responseBytes,
     dropped_response_forwarded_bytes: stats.droppedSpawnReplyForwardedBytes,
     spawn_invoke_calls: stats.methodCounts[SPAWN_INVOKE] ?? 0,
+    replay_attempts: stats.spawnInvokeKeys.length - 1,
+    unique_spawn_keys: new Set(stats.spawnInvokeKeys).size,
     task_sha256: stats.spawnInvokeTaskDigests[0],
     idempotency_key_sha256: sha256(stats.spawnInvokeKeys[0]),
-    upstream_spawn_frames: audit.upstream_spawn_frames,
-    workers_created: audit.workers_created,
-    correlated_results: audit.correlated_results,
-    releases: audit.releases,
-    final_claim: audit.final_claim,
-    target_capacity: audit.target_capacity,
-    unrelated_reservation: audit.unrelated_reservation,
-    journal_terminal_sequence: audit.journal_terminal_sequence,
-    inbox_settlement_sequence: audit.inbox_settlement_sequence,
+    spawn_identity_sha256: stats.droppedSpawnReply.spawnIdentityDigest,
+    release_calls: stats.methodCounts[SPAWN_RELEASE] ?? 0,
+    inbox_settlement_calls: (stats.methodCounts[INBOX_ACK] ?? 0)
+      + (stats.methodCounts[INBOX_FAIL] ?? 0),
   };
 }

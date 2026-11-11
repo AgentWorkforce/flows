@@ -11,10 +11,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import {
-  createBridgeResponseLossProxy,
-  verifyResponseLossEvidence,
-} from './node-spawn-response-loss-proxy.mjs';
+import { createBridgeResponseLossProxy } from './node-spawn-response-loss-proxy.mjs';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 
@@ -112,7 +109,8 @@ async function main() {
   }
   assertCommandSpec(config.start, 'start');
   assertCommandSpec(config.resume, 'resume');
-  assertCommandSpec(config.audit, 'audit');
+  assert.equal(config.audit, undefined,
+    'audit is built into the proof kit; fixture-supplied audit commands are not accepted');
   assert(config.resume.args.some(arg => arg.includes('{RUN_ID}')), 'resume args must contain {RUN_ID}');
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   assert(Number.isSafeInteger(timeoutMs) && timeoutMs > 0, 'timeoutMs must be positive');
@@ -220,7 +218,27 @@ async function main() {
     assert(resumeResults.every(result => result.signal === null),
       'neither raced resume may die by signal');
 
-    const auditSpec = commandWithRunId(config.audit, runId);
+    const proxyStatsPath = join(privateDir, 'proxy-stats.json');
+    const processEvidencePath = join(privateDir, 'process-evidence.json');
+    await writeFile(proxyStatsPath, `${JSON.stringify(proxy.stats)}\n`, { mode: 0o600, flag: 'wx' });
+    await writeFile(processEvidencePath, `${JSON.stringify({
+      initial: { pid: firstChild.pid, ...firstResult },
+      replays: [
+        { pid: left.child.pid, ...left.result },
+        { pid: right.child.pid, ...right.result },
+      ],
+    })}\n`, { mode: 0o600, flag: 'wx' });
+    const auditSpec = {
+      command: process.execPath,
+      args: [
+        fileURLToPath(new URL('./node-spawn-response-loss-audit.mjs', import.meta.url)),
+        '--run', runId,
+        '--data-dir', config.dataDir,
+        '--proxy-stats', proxyStatsPath,
+        '--process-evidence', processEvidencePath,
+        '--json',
+      ],
+    };
     const auditLog = join(config.evidenceDir, 'audit.stderr.log');
     const fd = openSync(auditLog, 'wx', 0o600);
     const auditChild = spawn(auditSpec.command, auditSpec.args, {
@@ -244,15 +262,9 @@ async function main() {
     assert.deepEqual(auditExit, { code: 0, signal: null }, `audit command failed; see ${auditLog}`);
     const audit = JSON.parse(auditStdout);
     await assertSecretFree([startLog, resumeLog1, resumeLog2, auditLog]);
-    const summary = verifyResponseLossEvidence(proxy.stats, audit);
     const evidence = {
-      ...summary,
+      ...audit,
       run_id: runId,
-      process_generations: {
-        initial_pid: firstChild.pid,
-        replay_pids: replayPids,
-      },
-      resume_exit_codes: resumeResults.map(result => result.code),
       core_bridge_version: coreBridgeVersion,
     };
     const evidencePath = join(config.evidenceDir, 'response-loss-proof.json');

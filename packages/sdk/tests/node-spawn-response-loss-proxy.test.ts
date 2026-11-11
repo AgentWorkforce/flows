@@ -11,7 +11,12 @@ interface ProxyStats {
   methodCounts: Record<string, number>;
   spawnInvokeTaskDigests: string[];
   spawnInvokeKeys: string[];
-  droppedSpawnReply?: { invocationId?: string; responseDigest: string; responseBytes: number };
+  droppedSpawnReply?: {
+    invocationId?: string;
+    spawnIdentityDigest: string;
+    responseDigest: string;
+    responseBytes: number;
+  };
   droppedSpawnReplyForwardedBytes: number;
 }
 
@@ -27,11 +32,13 @@ interface ProxyModule {
     upstreamSocket: string;
     onIntercept?: () => void;
   }): Promise<ProofProxy>;
-  verifyResponseLossEvidence(stats: ProxyStats, audit: unknown): unknown;
+  spawnIdentityDigest(identity: Record<string, string>): string;
+  verifyResponseLossProxyEvidence(stats: ProxyStats): Record<string, unknown>;
 }
 
 const moduleUrl = new URL('../scripts/node-spawn-response-loss-proxy.mjs', import.meta.url).href;
 const runnerModuleUrl = new URL('../scripts/node-spawn-response-loss-e2e.mjs', import.meta.url).href;
+const auditModuleUrl = new URL('../scripts/node-spawn-response-loss-audit.mjs', import.meta.url).href;
 const roots: string[] = [];
 const servers: net.Server[] = [];
 const proxies: ProofProxy[] = [];
@@ -67,7 +74,11 @@ function lineServer(socket: string) {
           }
           connection.write(`${JSON.stringify({
             jsonrpc: '2.0', id: request.id,
-            result: { id: 'invocation-1', status: 'completed' },
+            result: {
+              id: 'invocation-1', agent_id: 'agent-1', status: 'completed',
+              node_id: 'node-1', name: 'worker-1', spawned: true, ready: true,
+              released: false, task_unconfirmed: false, error_code: null,
+            },
           })}\n`);
         } else {
           connection.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { ok: true } })}\n`);
@@ -110,6 +121,54 @@ async function run(command: string, args: string[], cwd: string) {
   return { code, signal, stdout, stderr };
 }
 
+async function localEvidenceFixture() {
+  const proxy = await import(moduleUrl) as ProxyModule;
+  const identity = {
+    invocationId: 'invocation-1', nodeId: 'node-1', nodeName: 'desktop-1',
+    name: 'worker-1', agentId: 'agent-1',
+  };
+  const key = 'a'.repeat(32);
+  return {
+    runId: 'run_fixture',
+    claims: [{ path: '/private/claim.json', claim: {
+      version: 3,
+      baseUrl: 'https://cast.agentrelay.com', publisherId: 'publisher-1',
+      publisherName: 'flows-e2e', runId: 'run_fixture', stepId: 'step-1',
+      idempotencyKey: key, agentName: 'worker-1', timeoutMs: 600000,
+      request: { cli: 'codex', task: 'task', task_identity: 'task' }, startedAt: 1,
+      spawn: { id: identity.invocationId, action: 'spawn', status: 'completed',
+        nodeId: identity.nodeId, nodeName: identity.nodeName, name: identity.name,
+        agentId: identity.agentId, spawned: true, ready: true },
+      result: { inboxItemId: 'item-1', messageId: 'message-1', status: 'completed',
+        envelope: { version: 1, run_id: 'run_fixture', step_id: 'step-1',
+          dispatch_id: key, status: 'completed', output: { ok: true } },
+        settlementAction: 'ack', receivedAt: 150,
+        settlement: { attempt: 1, completionReason: 'success', preparedAt: 175,
+          settledAt: 200, settledAs: 'ack' } },
+      release: { invocationId: 'release-1', status: 'completed' },
+    } }],
+    journalEntries: [{ seq: 10, segment_id: 1, entry_type: 'step.completed',
+      run_id: 'run_fixture', step_id: 'step-1', attempt: 1, at_ms: 100,
+      payload: { completionReason: 'success', trajectory_tail: { relay_task: {
+        task_execution: { run_id: 'run_fixture', step_id: 'step-1', dispatch_id: key,
+          delivery_id: 'item-1', message_id: 'message-1' },
+      } } } }],
+    proxyStats: {
+      methodCounts: { 'spawn.invoke': 2, 'spawn.release': 1, 'spawn_callers.inbox.ack': 1 },
+      spawnInvokeTaskDigests: ['task-digest', 'task-digest'],
+      spawnInvokeKeys: [key, key],
+      droppedSpawnReply: { invocationId: identity.invocationId,
+        spawnIdentityDigest: proxy.spawnIdentityDigest(identity),
+        responseDigest: 'response-digest', responseBytes: 64 },
+      droppedSpawnReplyForwardedBytes: 0,
+    },
+    processEvidence: {
+      initial: { pid: 101, code: null, signal: 'SIGKILL' },
+      replays: [{ pid: 102, code: 0, signal: null }, { pid: 103, code: 3, signal: null }],
+    },
+  };
+}
+
 describe('Core Bridge response-loss proof proxy', () => {
   it('drops every byte of the committed reply and lets two same-key replays converge on one frame', async () => {
     const root = mkdtempSync(join(tmpdir(), 'flows-response-loss-proxy-'));
@@ -128,7 +187,10 @@ describe('Core Bridge response-loss proof proxy', () => {
     proxies.push(proxy);
     const spawn = {
       jsonrpc: '2.0', id: 1, method: 'spawn.invoke',
-      params: { idempotency_key: 'a'.repeat(32), task: 'exact original task bytes' },
+      params: {
+        idempotency_key: 'a'.repeat(32), task: 'exact original task bytes',
+        node_id: 'node-1', node_name: 'desktop-1', name: 'worker-1',
+      },
     };
 
     const first = await request(proxySocket, spawn);
@@ -146,24 +208,14 @@ describe('Core Bridge response-loss proof proxy', () => {
 
     await request(proxySocket, { jsonrpc: '2.0', id: 2, method: 'spawn.release', params: {} });
     await request(proxySocket, { jsonrpc: '2.0', id: 3, method: 'spawn_callers.inbox.ack', params: {} });
-    expect(() => module.verifyResponseLossEvidence(proxy.stats, {
-      schema: 'relayflows-node-spawn-response-loss/1',
-      strict_contract: 'relay.spawn.invoke.logical-replay-resume/1',
-      strict_replay_capability: 'relay.spawn.replay-resume/1',
-      strict_invocation_committed: true,
-      upstream_spawn_frames: 1,
-      workers_created: 1,
-      correlated_results: 1,
-      releases: 1,
-      final_claim: { result_present: true, release_confirmed: true, cleanup_pending: false },
-      target_capacity: { active_agents: 0, reserved_agents: 0 },
-      journal_terminal_sequence: 10,
-      inbox_settlement_sequence: 11,
-      unrelated_reservation: {
-        before: { identity: 'unrelated-1', count: 1 },
-        after: { identity: 'unrelated-1', count: 1 },
-      },
-    })).not.toThrow();
+    expect(module.verifyResponseLossProxyEvidence(proxy.stats)).toMatchObject({
+      dropped_response_forwarded_bytes: 0,
+      spawn_invoke_calls: 3,
+      replay_attempts: 2,
+      unique_spawn_keys: 1,
+      release_calls: 1,
+      inbox_settlement_calls: 1,
+    });
   });
 
   it('rejects changed task bytes even when the fixture reports a clean lifecycle', async () => {
@@ -172,71 +224,30 @@ describe('Core Bridge response-loss proof proxy', () => {
       methodCounts: { 'spawn.invoke': 3, 'spawn.release': 1, 'spawn_callers.inbox.ack': 1 },
       spawnInvokeTaskDigests: ['one', 'two', 'two'],
       spawnInvokeKeys: ['key', 'key', 'key'],
-      droppedSpawnReply: { responseDigest: 'reply', responseBytes: 12 },
+      droppedSpawnReply: { spawnIdentityDigest: 'identity', responseDigest: 'reply', responseBytes: 12 },
       droppedSpawnReplyForwardedBytes: 0,
     };
-    expect(() => module.verifyResponseLossEvidence(stats, {
-      schema: 'relayflows-node-spawn-response-loss/1',
-      strict_contract: 'relay.spawn.invoke.logical-replay-resume/1',
-      strict_replay_capability: 'relay.spawn.replay-resume/1',
-      strict_invocation_committed: true,
-      upstream_spawn_frames: 1,
-      workers_created: 1,
-      correlated_results: 1,
-      releases: 1,
-      final_claim: { result_present: true, release_confirmed: true, cleanup_pending: false },
-      target_capacity: { active_agents: 0, reserved_agents: 0 },
-      journal_terminal_sequence: 10,
-      inbox_settlement_sequence: 11,
-      unrelated_reservation: {
-        before: { identity: 'unrelated-1', count: 1 },
-        after: { identity: 'unrelated-1', count: 1 },
-      },
-    })).toThrow('original task bytes');
+    expect(() => module.verifyResponseLossProxyEvidence(stats)).toThrow('original task bytes');
   });
 
-  it('requires stored strict proofs and an unchanged unrelated reservation', async () => {
-    const module = await import(moduleUrl) as ProxyModule;
-    const stats: ProxyStats = {
-      methodCounts: { 'spawn.invoke': 3, 'spawn.release': 1, 'spawn_callers.inbox.ack': 1 },
-      spawnInvokeTaskDigests: ['same', 'same', 'same'],
-      spawnInvokeKeys: ['key', 'key', 'key'],
-      droppedSpawnReply: { responseDigest: 'reply', responseBytes: 12 },
-      droppedSpawnReplyForwardedBytes: 0,
+  it('fails closed when the final claim or journal ordering is not durable', async () => {
+    const audit = await import(auditModuleUrl) as {
+      verifyLocalResponseLossEvidence(input: Record<string, unknown>): Record<string, unknown>;
     };
-    const audit = {
-      schema: 'relayflows-node-spawn-response-loss/1',
-      strict_contract: 'relay.spawn.invoke.logical-replay-resume/1',
-      strict_replay_capability: 'relay.spawn.replay-resume/1',
-      strict_invocation_committed: true,
-      upstream_spawn_frames: 1,
-      workers_created: 1,
-      correlated_results: 1,
-      releases: 1,
-      final_claim: { result_present: true, release_confirmed: true, cleanup_pending: false },
-      target_capacity: { active_agents: 0, reserved_agents: 0 },
-      journal_terminal_sequence: 10,
-      inbox_settlement_sequence: 11,
-      unrelated_reservation: {
-        before: { identity: 'unrelated-1', count: 1 },
-        after: { identity: 'unrelated-1', count: 1 },
-      },
-    };
-    expect(() => module.verifyResponseLossEvidence(stats, {
-      ...audit,
-      strict_replay_capability: 'legacy',
-    })).toThrow();
-    expect(() => module.verifyResponseLossEvidence(stats, {
-      ...audit,
-      unrelated_reservation: {
-        ...audit.unrelated_reservation,
-        after: { identity: 'unrelated-1', count: 0 },
-      },
-    })).toThrow('unrelated reservation');
-    expect(() => module.verifyResponseLossEvidence(stats, {
-      ...audit,
-      final_claim: { ...audit.final_claim, result_present: false },
-    })).toThrow('retain its correlated result');
+    const fixture = await localEvidenceFixture();
+    expect(audit.verifyLocalResponseLossEvidence(fixture)).toMatchObject({
+      schema: 'relayflows-node-spawn-response-loss-local/1',
+      final_claim: { result_present: true, release_status: 'completed', cleanup_pending: false },
+      journal: { terminal_before_settlement: true },
+    });
+    const missingResult = structuredClone(fixture);
+    delete missingResult.claims[0].claim.result;
+    expect(() => audit.verifyLocalResponseLossEvidence(missingResult))
+      .toThrow('retain its correlated result');
+    const settledBeforeJournal = structuredClone(fixture);
+    settledBeforeJournal.claims[0].claim.result.settlement.settledAt = 50;
+    expect(() => audit.verifyLocalResponseLossEvidence(settledBeforeJournal))
+      .toThrow('precede claim settlement');
   });
 
   it('rejects ar_ credentials in captured proof logs', async () => {
@@ -301,10 +312,14 @@ describe('Core Bridge response-loss proof proxy', () => {
 
     const childScript = join(root, 'fake-flows.mjs');
     writeFileSync(childScript, `
-import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 const [mode, dataDir, winner] = process.argv.slice(2);
+const runId = 'run_fixture';
+const stepId = 'step_fixture';
+const key = 'a'.repeat(32);
 const caller = JSON.parse(readFileSync(process.env.RELAYFLOW_SERVICE_CALLER_FILE, 'utf8'));
 const rpc = (method, id) => new Promise((resolve, reject) => {
   const socket = net.createConnection(caller.socket);
@@ -312,7 +327,8 @@ const rpc = (method, id) => new Promise((resolve, reject) => {
   socket.once('error', reject);
   socket.once('connect', () => socket.write(JSON.stringify({
     jsonrpc: '2.0', id, method, params: method === 'spawn.invoke'
-      ? { idempotency_key: 'a'.repeat(32), task: 'exact original task bytes' }
+      ? { idempotency_key: key, task: 'exact original task bytes',
+          node_id: 'node-1', node_name: 'desktop-1', name: 'worker-1' }
       : {},
   }) + '\\n'));
   socket.on('data', chunk => {
@@ -325,7 +341,16 @@ const rpc = (method, id) => new Promise((resolve, reject) => {
 });
 if (mode === 'start') {
   mkdirSync(join(dataDir, 'runs'), { recursive: true });
-  closeSync(openSync(join(dataDir, 'runs', 'run_fixture.sqlite3'), 'w'));
+  const db = new DatabaseSync(join(dataDir, 'runs', runId + '.sqlite3'));
+  db.exec(\`
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+    INSERT INTO meta VALUES ('run_id', 'run_fixture'), ('journal_version', '1');
+    CREATE TABLE segments (segment_id INTEGER PRIMARY KEY, journal_version INTEGER NOT NULL, opened_seq INTEGER NOT NULL);
+    INSERT INTO segments VALUES (1, 1, 1);
+    CREATE TABLE entries (seq INTEGER PRIMARY KEY, segment_id INTEGER NOT NULL REFERENCES segments(segment_id),
+      entry_type TEXT NOT NULL, step_id TEXT, attempt INTEGER, at_ms INTEGER NOT NULL, payload TEXT NOT NULL);
+  \`);
+  db.close();
   await rpc('spawn.invoke', 1);
   process.exit(99);
 }
@@ -337,27 +362,47 @@ if (!won) process.exit(3);
 await rpc('spawn.invoke', 1);
 await rpc('spawn.release', 2);
 await rpc('spawn_callers.inbox.ack', 3);
-`);
-
-    const auditScript = join(root, 'audit.mjs');
-    writeFileSync(auditScript, `console.log(JSON.stringify({
-  schema: 'relayflows-node-spawn-response-loss/1',
-  strict_contract: 'relay.spawn.invoke.logical-replay-resume/1',
-  strict_replay_capability: 'relay.spawn.replay-resume/1',
-  strict_invocation_committed: true,
-  upstream_spawn_frames: 1,
-  workers_created: 1,
-  correlated_results: 1,
-  releases: 1,
-  final_claim: { result_present: true, release_confirmed: true, cleanup_pending: false },
-  target_capacity: { active_agents: 0, reserved_agents: 0 },
-  journal_terminal_sequence: 10,
-  inbox_settlement_sequence: 11,
-  unrelated_reservation: {
-    before: { identity: 'unrelated-1', count: 1 },
-    after: { identity: 'unrelated-1', count: 1 },
+const journal = new DatabaseSync(join(dataDir, 'runs', runId + '.sqlite3'));
+journal.prepare('INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+  10, 1, 'step.completed', stepId, 1, 100, JSON.stringify({
+    completionReason: 'success',
+    trajectory_tail: { relay_task: { task_execution: {
+      run_id: runId, step_id: stepId, dispatch_id: key,
+      delivery_id: 'item-1', message_id: 'message-1',
+    } } },
+  }),
+);
+journal.close();
+const claim = {
+  version: 3,
+  baseUrl: 'https://cast.agentrelay.com',
+  publisherId: 'publisher-1',
+  publisherName: 'flows-e2e',
+  runId,
+  stepId,
+  idempotencyKey: key,
+  agentName: 'worker-1',
+  timeoutMs: 600000,
+  request: { cli: 'codex', task: 'exact original task bytes', task_identity: 'proof-task' },
+  startedAt: 1,
+  spawn: {
+    id: 'invocation-1', action: 'spawn', status: 'completed',
+    nodeId: 'node-1', nodeName: 'desktop-1', name: 'worker-1', agentId: 'agent-1',
+    spawned: true, ready: true,
   },
-}));\n`);
+  result: {
+    inboxItemId: 'item-1', messageId: 'message-1', status: 'completed',
+    envelope: { version: 1, run_id: runId, step_id: stepId, dispatch_id: key,
+      status: 'completed', output: { ok: true } },
+    settlementAction: 'ack', receivedAt: 150,
+    settlement: { attempt: 1, completionReason: 'success', preparedAt: 175,
+      settledAt: 200, settledAs: 'ack' },
+  },
+  release: { invocationId: 'release-1', status: 'completed' },
+};
+mkdirSync(join(dataDir, 'node-spawns'), { recursive: true });
+writeFileSync(join(dataDir, 'node-spawns', 'b'.repeat(64) + '.json'), JSON.stringify(claim), { mode: 0o600 });
+`);
     const config = join(root, 'config.json');
     writeFileSync(config, `${JSON.stringify({
       callerFile,
@@ -367,7 +412,6 @@ await rpc('spawn_callers.inbox.ack', 3);
       workDir,
       start: { command: process.execPath, args: [childScript, 'start', dataDir, join(root, 'winner')] },
       resume: { command: process.execPath, args: [childScript, 'resume', dataDir, join(root, 'winner'), '{RUN_ID}'] },
-      audit: { command: process.execPath, args: [auditScript, '{RUN_ID}'] },
     })}\n`, { mode: 0o600 });
 
     const result = await run(process.execPath, [
@@ -378,22 +422,32 @@ await rpc('spawn_callers.inbox.ack', 3);
     expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, run_id: 'run_fixture' });
     const evidence = JSON.parse(readFileSync(join(evidenceDir, 'response-loss-proof.json'), 'utf8'));
     expect(evidence).toMatchObject({
+      schema: 'relayflows-node-spawn-response-loss-local/1',
       dropped_response_forwarded_bytes: 0,
       spawn_invoke_calls: 2,
-      upstream_spawn_frames: 1,
-      workers_created: 1,
-      correlated_results: 1,
-      releases: 1,
-      final_claim: { result_present: true, release_confirmed: true, cleanup_pending: false },
-      target_capacity: { active_agents: 0, reserved_agents: 0 },
-      unrelated_reservation: {
-        before: { identity: 'unrelated-1', count: 1 },
-        after: { identity: 'unrelated-1', count: 1 },
+      replay_attempts: 1,
+      unique_spawn_keys: 1,
+      release_calls: 1,
+      inbox_settlement_calls: 1,
+      final_claim: {
+        version: 3,
+        result_present: true,
+        release_status: 'completed',
+        cleanup_pending: false,
+        settlement_action: 'ack',
       },
+      journal: { terminal_sequence: 10, terminal_before_settlement: true },
       process_generations: {
         initial_pid: expect.any(Number),
         replay_pids: [expect.any(Number), expect.any(Number)],
       },
+      deferred_assertions: [
+        'stored_relaycast_contract_and_capability',
+        'provider_frame_and_worker_counts',
+        'target_capacity',
+        'unrelated_reservation_preservation',
+        'remote_fleet_lifecycle',
+      ],
     });
     expect(new Set(evidence.process_generations.replay_pids).size).toBe(2);
     expect(evidence.process_generations.replay_pids).not.toContain(
