@@ -107,6 +107,42 @@ try {
 console.log(`PACKED_RUNTIME_REFUSAL_OK invalidHeaders=${invalidHeaders.length} forgedHandle=refused`);
 NODE
 
+# Hosted flows get only this package, so the signal helper must resolve from
+# the tarball alone and import nothing but Node built-ins.
+RELAYFLOW_V2_CLOUD_RUN_ID=packed-run RELAYFLOW_V2_SIGNAL_READ_TOKEN=packed-read RELAYFLOW_RUN_ID=engine-run \
+  node --input-type=module - <<'NODE'
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { waitForSignal, SignalError } from '@relayflows/surface/signals';
+
+const require = createRequire(import.meta.url);
+const entry = require.resolve('@relayflows/surface/signals');
+// Statement-level only: the module's doc comment shows an example import.
+const specifiers = [...readFileSync(entry, 'utf8')
+  .matchAll(/^\s*(?:import|export)\b[^;]*?\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']/gm)]
+  .map((match) => match[1] ?? match[2]);
+if (specifiers.length === 0 || specifiers.some((specifier) => !specifier.startsWith('node:'))) {
+  throw new Error(`packed signals helper imports beyond Node built-ins: ${specifiers.join(', ')}`);
+}
+let requested;
+globalThis.fetch = async (url, init) => {
+  requested = { url: String(url), auth: new Headers(init.headers).get('authorization') };
+  return Response.json({ payload: { done: true }, acceptedAt: 1 });
+};
+const payload = await waitForSignal('native_done');
+if (requested.url !== 'https://agentrelay.com/cloud/api/v1/workflows/runs/packed-run/signals/native_done?waitMs=25000'
+  || requested.auth !== 'Bearer packed-read' || payload?.done !== true) {
+  throw new Error(`packed signals helper used the wrong hosted defaults: ${JSON.stringify(requested)}`);
+}
+try {
+  await waitForSignal('bad/name');
+  throw new Error('packed signals helper accepted an invalid name');
+} catch (error) {
+  if (!(error instanceof SignalError) || error.code !== 'invalid_input') throw error;
+}
+console.log(`PACKED_SIGNALS_OK imports=${specifiers.join(',')}`);
+NODE
+
 cat > consume.mts <<'TS'
 import {
   flow,
@@ -126,6 +162,11 @@ import {
   getFlowDefinition,
   type AuthoredFlowDefinition,
 } from '@relayflows/surface/runtime';
+import {
+  waitForSignal,
+  type SignalError,
+  type WaitForSignalOptions,
+} from '@relayflows/surface/signals';
 
 const body = async (f: Ctx): Promise<void> => {
   const ran: Step<string> = f.run('true');
@@ -137,6 +178,9 @@ const body = async (f: Ctx): Promise<void> => {
   const post: Step<SlackReceipt> = slack.post('#test', 'hi');
   await post;
   await f.slack.post('#test', 'typed');
+  const signalOptions: WaitForSignalOptions = { waitMs: 25_000 };
+  const signalled: unknown = await waitForSignal('native_done', signalOptions);
+  void signalled;
   f.done('success');
 };
 const header: FlowHeader = { identity: 'packed-type-consumer' };
@@ -150,6 +194,8 @@ const refuseStepReason = (f: Ctx, reason: CompletionReason): void => {
   f.done(reason);
 };
 const helper: CloudHelper | undefined = undefined;
+const signalFailure: SignalError['code'] = 'transient_error';
+void signalFailure;
 void definition;
 void helper;
 void stepReason;

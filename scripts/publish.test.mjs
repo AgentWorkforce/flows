@@ -93,6 +93,13 @@ test('actual npm tarballs reject missing dist and local dependencies, then accep
   for (const file of ['index.js', 'index.d.ts', 'runtime.js', 'runtime.d.ts']) {
     writeFileSync(join(dist, file), 'export {};\n');
   }
+  // The published Surface must also ship the hosted signal helper (#677).
+  const noSignals = run();
+  assert.notEqual(noSignals.status, 0);
+  assert.match(noSignals.stderr, /missing package\/dist\/signals\.js/);
+  for (const file of ['signals.js', 'signals.d.ts']) {
+    writeFileSync(join(dist, file), 'export {};\n');
+  }
   const path = join(root, 'packages/surface/package.json');
   const pkg = read(path);
   pkg.dependencies = { external: 'file:../external' };
