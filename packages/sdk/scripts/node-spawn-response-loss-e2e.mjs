@@ -16,6 +16,8 @@ import {
   verifyResponseLossEvidence,
 } from './node-spawn-response-loss-proxy.mjs';
 
+const DEFAULT_TIMEOUT_MS = 10 * 60_000;
+
 function assertCommandSpec(spec, label) {
   assert.equal(typeof spec?.command, 'string', `${label}.command is required`);
   assert(isAbsolute(spec.command), `${label}.command must be absolute`);
@@ -69,10 +71,10 @@ async function waitForRunId(dataDir, timeoutMs) {
   throw new Error('timed out waiting for the single proof run id');
 }
 
-async function assertSecretFree(paths) {
+export async function assertSecretFree(paths) {
   const forbidden = [
     /rsc_[A-Za-z0-9_-]{20,}/,
-    /(?:at|rk|nt|ot|br|arr)_(?:live_)?[A-Za-z0-9_-]{8,}/,
+    /(?:ar|arr|at|br|nt|ot|rk)_(?:live_)?[A-Za-z0-9_-]{8,}/,
     /(?:relay_pa_|sh_fr_)[A-Za-z0-9_-]+/,
     /caller_secret/i,
     /(?:RELAY|AGENT_RELAY|RELAYCAST)_(?:AGENT_TOKEN|API_KEY|WORKSPACE_KEY|NODE_TOKEN|WORKSPACES_JSON)/,

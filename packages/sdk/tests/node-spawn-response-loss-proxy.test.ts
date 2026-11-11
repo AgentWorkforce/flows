@@ -31,6 +31,7 @@ interface ProxyModule {
 }
 
 const moduleUrl = new URL('../scripts/node-spawn-response-loss-proxy.mjs', import.meta.url).href;
+const runnerModuleUrl = new URL('../scripts/node-spawn-response-loss-e2e.mjs', import.meta.url).href;
 const roots: string[] = [];
 const servers: net.Server[] = [];
 const proxies: ProofProxy[] = [];
@@ -231,7 +232,18 @@ describe('Core Bridge response-loss proof proxy', () => {
     })).toThrow('unrelated reservation');
   });
 
-  it('runs the killed-child and two-resume acceptance orchestration against a local fixture', async () => {
+  it('rejects ar_ credentials in captured proof logs', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'flows-response-loss-secret-'));
+    roots.push(root);
+    const log = join(root, 'resume.log');
+    writeFileSync(log, `unexpected credential ar_${'A'.repeat(24)}\n`, { mode: 0o600 });
+    const runner = await import(runnerModuleUrl) as {
+      assertSecretFree(paths: string[]): Promise<void>;
+    };
+    await expect(runner.assertSecretFree([log])).rejects.toThrow('credential-shaped material');
+  });
+
+  it('uses the default timeout for killed-child and two-resume acceptance orchestration', async () => {
     const root = mkdtempSync(join(tmpdir(), 'flows-response-loss-runner-'));
     roots.push(root);
     const upstreamSocket = join(root, 'upstream.sock');
@@ -345,7 +357,6 @@ await rpc('spawn_callers.inbox.ack', 3);
       evidenceDir,
       homeDir,
       workDir,
-      timeoutMs: 10_000,
       start: { command: process.execPath, args: [childScript, 'start', dataDir, join(root, 'winner')] },
       resume: { command: process.execPath, args: [childScript, 'resume', dataDir, join(root, 'winner'), '{RUN_ID}'] },
       audit: { command: process.execPath, args: [auditScript, '{RUN_ID}'] },
