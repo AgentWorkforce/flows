@@ -1,13 +1,17 @@
 import {
   mkdtempSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -30,6 +34,38 @@ function temporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), 'flows-bin-'));
   temporaryDirectories.push(directory);
   return directory;
+}
+
+/** Preserve npm's actual nested dependency layout without workspace links. */
+function copySurfaceInstallation(directory: string): void {
+  const modules = realpathSync(join(SDK, 'node_modules'));
+  const copied = new Set<string>();
+  const copy = (installed: string): void => {
+    const source = realpathSync(installed);
+    if (copied.has(source)) return;
+    const location = relative(modules, source);
+    expect(location.startsWith(`..${sep}`) || location === '..').toBe(false);
+    copied.add(source);
+    const destination = join(directory, 'node_modules', location);
+    mkdirSync(dirname(destination), { recursive: true });
+    cpSync(source, destination, { recursive: true, dereference: true,
+      filter: path => path !== join(source, 'node_modules') });
+    const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'));
+    for (const name of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })) {
+      let parent = source;
+      for (;;) {
+        const candidate = join(parent, 'node_modules', name);
+        if (existsSync(join(candidate, 'package.json'))) { copy(candidate); break; }
+        const next = dirname(parent);
+        if (next === parent) {
+          expect(manifest.peerDependenciesMeta?.[name]?.optional, `missing installed dependency ${name}`).toBe(true);
+          break;
+        }
+        parent = next;
+      }
+    }
+  };
+  copy(join(modules, '@relayflows/surface'));
 }
 
 function invoke(entry: string, flow: string, env: NodeJS.ProcessEnv = process.env) {
@@ -55,6 +91,38 @@ function expectMissingCliRefusal(result: ReturnType<typeof invoke>): void {
 }
 
 describe('built flows binary', () => {
+  it('loads authored bare package imports in the standalone without enabling dotenv or bunfig', () => {
+    const directory = temporaryDirectory();
+    const standalone = join(directory, 'flows');
+    const built = spawnSync(process.execPath, [STANDALONE_BUILDER,
+      process.platform === 'darwin' ? 'bun-darwin-arm64' : 'bun-linux-x64', standalone], {
+      cwd: ROOT, encoding: 'utf8', timeout: 120_000,
+      env: { ...process.env, FLOWS_BUILD_BUN: process.env['FLOWS_BUILD_BUN'] ?? 'bun' },
+    });
+    expect(built.status, built.stderr + built.stdout).toBe(0);
+    copySurfaceInstallation(directory);
+    writeFileSync(join(directory, 'package.json'), '{"private":true,"type":"module"}');
+    writeFileSync(join(directory, '.env'), 'FLOWS_STANDALONE_DOTENV_PROBE=unexpected\n');
+    writeFileSync(join(directory, 'bunfig.toml'), 'preload = ["./must-not-preload.mjs"]\n');
+    writeFileSync(join(directory, 'must-not-preload.mjs'), "throw new Error('bunfig unexpectedly loaded');\n");
+    const flow = join(directory, 'physical-surface.flow.ts');
+    writeFileSync(flow, `import { flow } from '@relayflows/surface';
+import { writeFileSync } from 'node:fs';
+if (process.env.FLOWS_STANDALONE_DOTENV_PROBE !== undefined) throw new Error('dotenv unexpectedly loaded');
+export default flow('physical-surface', async f => {
+  writeFileSync(${JSON.stringify(join(directory, 'body-executed'))}, 'unexpected');
+  f.done('success');
+});\n`);
+    const checked = spawnSync(standalone, ['check', '--json', '--no-daemon-check', flow], {
+      cwd: directory, encoding: 'utf8', timeout: 30_000,
+      // No NODE_PATH/NODE_OPTIONS or workspace package-resolution fallback.
+      env: { PATH: process.env.PATH, HOME: directory },
+    });
+    expect(checked.status, checked.stderr + checked.stdout).toBe(0);
+    expect(JSON.parse(checked.stdout)).toMatchObject({ ok: true, path: flow });
+    expect(existsSync(join(directory, 'body-executed'))).toBe(false);
+  }, 150_000);
+
   it('build produces an executable CLI artifact', () => {
     expect(statSync(BUILT_CLI).mode & 0o111).not.toBe(0);
   });
