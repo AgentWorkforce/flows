@@ -12,6 +12,7 @@ interface FencedNodeSpawnOptions {
   claim: NodeSpawnClaim;
   signal?: AbortSignal;
   settleLate(outcome: { spawn?: NodeSpawnReceipt; error?: unknown }): Promise<void>;
+  replayExistingFence?: boolean;
 }
 
 interface RetryablePreflightIdentity {
@@ -21,6 +22,7 @@ interface RetryablePreflightIdentity {
 }
 
 const retryablePreflightPorts = new WeakMap<NodeSpawnPort, RetryablePreflightIdentity>();
+const replayableFencedPorts = new WeakMap<NodeSpawnPort, RetryablePreflightIdentity>();
 
 /**
  * Registers the exact built-in method set that may perform proven side-effect-
@@ -32,6 +34,20 @@ export function registerRetryablePreflightPort(
   identity: RetryablePreflightIdentity,
 ): void {
   if (hasExactPreflightMethods(port, identity)) retryablePreflightPorts.set(port, identity);
+}
+
+/** Registers an exact built-in port whose server contract replays a fenced dispatch by idempotency key. */
+export function registerReplayableFencedPort(
+  port: NodeSpawnPort,
+  identity: RetryablePreflightIdentity,
+): void {
+  if (hasExactPreflightMethods(port, identity)) replayableFencedPorts.set(port, identity);
+}
+
+/** True only while the exact registered built-in method set remains installed. */
+export function hasReplayableFencedDispatch(port: NodeSpawnPort): boolean {
+  const identity = replayableFencedPorts.get(port);
+  return identity !== undefined && hasExactPreflightMethods(port, identity);
 }
 
 function hasRetryablePreflight(port: NodeSpawnPort): boolean {
@@ -57,6 +73,16 @@ export async function dispatchFencedNodeSpawn(
 ): Promise<NodeSpawnReceipt> {
   const retryablePreflight = hasRetryablePreflight(options.port);
   let dispatchPublished = false;
+  if (options.replayExistingFence === true) {
+    if (!hasReplayableFencedDispatch(options.port)
+      || !await hasNodeSpawnDispatchFence(options.claimPath, options.claim)) {
+      throw new NodeSpawnError(
+        'A fenced node-spawn replay requires the exact built-in replay contract and durable fence',
+        'spawn_dispatch_fence_missing',
+      );
+    }
+    dispatchPublished = true;
+  }
   let dispatchHookEntered = false;
   let pendingSpawn: Promise<NodeSpawnReceipt>;
   if (!retryablePreflight) {

@@ -63,6 +63,13 @@ runtime use fails before claim creation. Overriding the built-in local port's
 `spawn` or `targets` method also removes that narrow trust and fences it before
 entry.
 
+The exact built-in local Desktop port has one additional recovery contract.
+Core Bridge 18.1 or newer persists `spawn.invoke` idempotency keys, so after a
+durable fence and a lost reply Flows may repeat the identical local request and
+recover the original invocation. That exemption is registered by exact
+prototype and method identity; wrappers, subclasses, overrides, accessors,
+custom ports, remote placement and legacy version 2 claims remain fail-closed.
+
 ## Hosted and self-hosted execution
 
 Hosted workers use the agent-token fleet path. Self-hosted workers use the

@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { claimNodeSpawnAtPath, hasNodeSpawnDispatchFence,
   nodeSpawnClaimPath, recordNodeSpawn,
   type NodeSpawnClaim } from './node-spawn-state.js';
-import { dispatchFencedNodeSpawn } from './node-spawn-dispatch.js';
+import { dispatchFencedNodeSpawn,
+  hasReplayableFencedDispatch } from './node-spawn-dispatch.js';
 import { releaseNodeSpawnClaim } from './node-spawn-cleanup.js';
 import { nodeResultInstruction, waitForNodeResult } from './node-spawn-result.js';
 import { durableNodeResultDelivery } from './node-spawn-settlement.js';
@@ -229,8 +230,9 @@ async function executeAgentRelayTask(
   const deadline = claim.startedAt + claim.timeoutMs;
   try {
     const dispatchFenced = claim.version === 3 && await hasNodeSpawnDispatchFence(claimed.path, claim);
+    const replayExistingFence = dispatchFenced && hasReplayableFencedDispatch(runtime.port);
     if (claim.spawn === undefined && claim.cleanup === undefined
-      && (dispatchFenced || (!claimed.created && claim.version === 2))) {
+      && ((dispatchFenced && !replayExistingFence) || (!claimed.created && claim.version === 2))) {
       throw new AgentRelayTransportError('A prior node-spawn dispatch ended in the ambiguous pre-ack window; refusing a second spawn');
     }
     // A v3 claim without a dispatch fence proves no irreversible call was
@@ -267,6 +269,7 @@ async function executeAgentRelayTask(
           timeoutMs: remaining,
         },
         claimPath: claimed.path, claim, signal, settleLate: settleLateSpawn,
+        replayExistingFence,
       });
       claim = { ...claim, spawn };
       await recordNodeSpawn(claimed.path, claim);

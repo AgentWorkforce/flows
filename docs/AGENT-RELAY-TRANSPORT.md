@@ -57,11 +57,16 @@ dispatch fence: Flows writes and fsyncs a complete private marker, atomically
 hard-links it into place, and fsyncs the directory immediately before local
 `spawn.invoke` or remote `placement.spawn`. Competing workers may repeat
 preflight, but only the fence winner may enter that irreversible call. A v3
-claim with no fence proves dispatch was not entered and may retry preflight;
-once the fence exists, a missing receipt is ambiguous forever and fails
-closed. Malformed, mismatched, or unreadable fence state also fails closed.
-Legacy version 2 claims without a receipt remain ambiguous and are never
-blindly retried. A recorded invocation is reconciled with
+claim with no fence proves dispatch was not entered and may retry preflight.
+The exact built-in local Desktop port is the sole fenced-replay exception:
+Core Bridge 18.1 or newer durably deduplicates `spawn.invoke` by the forwarded
+idempotency key, so a restart may repeat that identical request and recover the
+original invocation after its reply was lost. Flows admits that replay only for
+the registered, unchanged `LocalNodeSpawnPort` prototype and re-verifies the
+existing fence before entry. A missing receipt from remote placement, a custom
+or overridden port, or a legacy version 2 claim remains ambiguous and fails
+closed without another dispatch. Malformed, mismatched, or unreadable fence
+state also fails closed. A recorded invocation is reconciled with
 `commands.getInvocation`. The stable worker name provides additional
 collision protection at the node.
 
