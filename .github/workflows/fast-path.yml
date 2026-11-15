@@ -24,7 +24,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: fast-path-${{ inputs.ref }}
+  group: fast-path-${{ inputs.ref }}-${{ github.run_id }}
   cancel-in-progress: false
 env:
   NPM_CONFIG_FUND: 'false'
@@ -58,6 +58,7 @@ jobs:
           node-version: "22"
       - uses: oven-sh/setup-bun@v2
         with:
+          no-cache: true
           bun-version: "1.4.0"
       - uses: dtolnay/rust-toolchain@stable
       - name: Test artifact contract
@@ -167,6 +168,7 @@ jobs:
           node-version: "22"
       - uses: oven-sh/setup-bun@v2
         with:
+          no-cache: true
           bun-version: "1.4.0"
       - name: Test source, regressions, and packed consumers
         run: bash scripts/surface-package-gate.sh
@@ -209,10 +211,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: packages/sdk/package-lock.json
       - uses: oven-sh/setup-bun@v2
         with:
+          no-cache: true
           bun-version: '1.4.0'
       - uses: dtolnay/rust-toolchain@stable
       - name: Install build dependencies
@@ -289,6 +290,7 @@ jobs:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2
         with:
+          no-cache: true
           bun-version: '1.4.0'
       - uses: dtolnay/rust-toolchain@stable
       - name: Install build dependencies
