@@ -1,0 +1,355 @@
+# Fast path: run the PR checks and build every release tarball on Blacksmith
+# runners, outside the shared GitHub-hosted queue. Anyone with write access
+# (people or agents) may start it; nothing runs until Khaliq approves the
+# fast-path environment.
+#
+# It publishes nothing. npm publishing uses trusted publishing (OIDC bound to
+# publish.yml), so the fast path builds and packs surface, sdk, the two runtime
+# packages and relayflows at the checked-in version exactly as publish.yml
+# does (without the version bump) and uploads the tarballs as an artifact. It
+# also uploads the linux-x64 cloud runtime artifact and the schema package.
+# No dist-tag, git tag, GitHub release or Pages deployment is created or moved.
+name: fast-path
+run-name: fast-path ${{ inputs.ref }} (${{ inputs.reason }})
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build (a PR branch is fine)
+        required: true
+        default: main
+      reason:
+        description: Why this needs the fast path
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: fast-path-${{ inputs.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
+env:
+  NPM_CONFIG_FUND: 'false'
+jobs:
+  gate:
+    name: Approve and resolve ref
+    environment: fast-path
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  # cloud-runtime-artifact.yml
+  linux-x64-artifact:
+    needs: gate
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          no-cache: true
+          bun-version: "1.4.0"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test artifact contract
+        run: node --test scripts/cloud-artifact.test.mjs
+      - name: Build relayflowd
+        working-directory: kernel
+        run: cargo build --locked --release -p relayflowd
+      - name: Test kernel
+        working-directory: kernel
+        run: cargo test --workspace
+      - name: Build authoring surface
+        working-directory: packages/surface
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build
+      - name: Install SDK dependencies
+        run: npm ci --prefix packages/sdk --ignore-scripts
+      - name: Override registry surface with local build
+        run: npm install ./packages/surface --prefix packages/sdk --no-save --ignore-scripts
+      - name: Link the local surface at the repo root
+        run: |
+          mkdir -p node_modules/@relayflows
+          ln -sfn ../../packages/sdk/node_modules/@relayflows/surface \
+            node_modules/@relayflows/surface
+          node -e "console.log(require.resolve('@relayflows/surface'))"
+      - name: Provision hosted extension sandbox
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+          if sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          /usr/bin/bwrap --version
+          /usr/bin/bwrap --unshare-all --die-with-parent --new-session \
+            --ro-bind / / /bin/true
+      - name: Test SDK and type-level authoring contracts
+        working-directory: packages/sdk
+        env:
+          RELAYFLOWS_ALLOW_ANALYZER_SKIP: '1'
+        run: |
+          ( [ ! -d ../testdata/preflight ] || \
+            find ../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+          npm run typecheck
+          npm run build
+          npm run typecheck:tests
+          RELAYFLOWD_BIN="$GITHUB_WORKSPACE/kernel/target/release/relayflowd" \
+            ./node_modules/.bin/vitest run tests/cli-watch.test.ts
+          RELAYFLOWD_BIN="$GITHUB_WORKSPACE/kernel/target/release/relayflowd" \
+            ./node_modules/.bin/vitest run --exclude tests/cli-package-gate.test.ts --exclude tests/cli-watch.test.ts
+          RELAYFLOWD_BIN="$GITHUB_WORKSPACE/kernel/target/release/relayflowd" \
+            ./node_modules/.bin/vitest run tests/cli-package-gate.test.ts
+      - name: Build standalone flows CLI
+        run: |
+          mkdir -p dist/cloud-artifact-input
+          node scripts/build-standalone-cli.mjs bun-linux-x64 dist/cloud-artifact-input/flows
+      - name: Assemble artifact and smoke verifier path
+        env:
+          SOURCE_COMMIT: ${{ needs.gate.outputs.sha }}
+        run: |
+          node scripts/cloud-artifact.mjs build \
+            --relayflowd kernel/target/release/relayflowd \
+            --flows-executable dist/cloud-artifact-input/flows \
+            --output-dir dist/cloud-artifact \
+            --source-commit "$SOURCE_COMMIT"
+          archive="$(find dist/cloud-artifact -name '*.tar.gz' -type f -print -quit)"
+          checksum="$(awk '{print $1}' "$archive.sha256")"
+          node scripts/cloud-artifact.mjs verify \
+            --archive "$archive" \
+            --sha256 "$checksum"
+      - name: Smoke exact Linux artifact
+        run: |
+          archive="$(find dist/cloud-artifact -name '*.tar.gz' -type f -print -quit)"
+          mkdir -p dist/cloud-artifact-smoke
+          tar -xzf "$archive" -C dist/cloud-artifact-smoke
+          dist/cloud-artifact-smoke/bin/relayflowd --help
+          flows_output="$(dist/cloud-artifact-smoke/bin/flows check --json testdata/hello-deterministic.flow.yaml)"
+          printf '%s\n' "$flows_output"
+          node -e '
+            const report = JSON.parse(process.argv[1]);
+            if (report.ok !== true) throw new Error("flows smoke report was not ok");
+            if (report.path !== "testdata/hello-deterministic.flow.yaml") {
+              throw new Error("flows smoke reported unexpected path: " + report.path);
+            }
+          ' "$flows_output"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: relayflow-v2-linux-x64-${{ needs.gate.outputs.sha }}
+          path: |
+            dist/cloud-artifact/*.tar.gz
+            dist/cloud-artifact/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  # surface-package.yml, ops-cargo-shim.yml and the schema-publish.yml validation.
+  package-gates:
+    name: Surface, schema and host-shim gates
+    needs: gate
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          no-cache: true
+          bun-version: "1.4.0"
+      - name: Test source, regressions, and packed consumers
+        run: bash scripts/surface-package-gate.sh
+      - name: Prove cargo.sh does not break a host rustup shim
+        run: node --test ops/cargo-host-shim.test.mjs
+      - name: Install generator and test dependencies
+        run: npm ci --prefix packages/sdk --ignore-scripts
+      - name: Regenerate and check committed schema
+        run: |
+          node scripts/generate-json-schema.mjs
+          git diff --exit-code -- packages/schema/flows.schema.json
+          cp packages/schema/flows.schema.json "$RUNNER_TEMP/flows.schema.first.json"
+          node scripts/generate-json-schema.mjs
+          diff -q "$RUNNER_TEMP/flows.schema.first.json" packages/schema/flows.schema.json
+      - name: Schema parity and smoke
+        working-directory: packages/schema
+        run: bun run test
+      - name: Pack data-only schema artifact
+        run: |
+          mkdir -p dist/schema
+          npm pack ./packages/schema --pack-destination dist/schema --ignore-scripts
+          cp packages/schema/flows.schema.json dist/schema/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: schema-${{ needs.gate.outputs.sha }}
+          path: dist/schema/
+          if-no-files-found: error
+
+  # publish.yml `build`, without the version bump.
+  build:
+    name: Build & pack (linux-x64)
+    needs: gate
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          no-cache: true
+          bun-version: '1.4.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: |
+          npm install --prefix packages/surface --ignore-scripts
+          npm ci --prefix packages/sdk --ignore-scripts
+      - name: Test release tooling
+        run: node --test scripts/publish.test.mjs
+      - name: Build surface
+        working-directory: packages/surface
+        run: ./node_modules/.bin/tsc
+      - name: Pack and assert surface
+        id: surface
+        run: node scripts/pack-release.mjs surface
+      - name: Build SDK against packed surface
+        env:
+          SURFACE_TARBALL: ${{ steps.surface.outputs.tarball }}
+        working-directory: packages/sdk
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts "$SURFACE_TARBALL"
+          test ! -L node_modules/@relayflows/surface
+          ./node_modules/.bin/tsc
+          node scripts/make-cli-executable.mjs
+      - name: Pack and assert SDK
+        id: sdk
+        run: node scripts/pack-release.mjs sdk
+      - name: Build relayflows CLI wrapper against packed SDK
+        env:
+          SDK_TARBALL: ${{ steps.sdk.outputs.tarball }}
+          SURFACE_TARBALL: ${{ steps.surface.outputs.tarball }}
+        working-directory: packages/relayflows
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts "$SDK_TARBALL" "$SURFACE_TARBALL"
+          test ! -L node_modules/@relayflows/sdk
+          report=$(node bin/flows.js check --json ../../testdata/hello-deterministic.flow.yaml)
+          echo "$report" | node -e '
+            const report = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            if (report.ok !== true) { console.error(report); process.exit(1); }
+          '
+      - name: Pack and assert relayflows CLI wrapper
+        run: node scripts/pack-release.mjs relayflows
+      - name: Build relayflowd
+        working-directory: kernel
+        run: cargo build --locked --release -p relayflowd
+      - name: Build and execute runtime binaries
+        run: |
+          mkdir -p packages/runtime-linux-x64/bin
+          cp kernel/target/release/relayflowd packages/runtime-linux-x64/bin/relayflowd
+          node scripts/build-standalone-cli.mjs bun-linux-x64 packages/runtime-linux-x64/bin/flows
+          chmod +x packages/runtime-linux-x64/bin/relayflowd packages/runtime-linux-x64/bin/flows
+          packages/runtime-linux-x64/bin/relayflowd --help
+          packages/runtime-linux-x64/bin/flows check --json testdata/hello-deterministic.flow.yaml
+      - name: Pack and assert runtime (executes both unpacked binaries)
+        run: node scripts/pack-release.mjs runtime-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-packages-linux-${{ needs.gate.outputs.sha }}
+          path: dist/publish/*.tgz
+          if-no-files-found: error
+
+  # publish.yml `build-darwin-arm64`, without the version bump.
+  build-darwin-arm64:
+    name: Build & pack darwin-arm64 runtime
+    needs: gate
+    runs-on: blacksmith-6vcpu-macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          no-cache: true
+          bun-version: '1.4.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: |
+          npm install --prefix packages/surface --ignore-scripts
+          npm ci --prefix packages/sdk --ignore-scripts
+      - name: Build surface
+        working-directory: packages/surface
+        run: ./node_modules/.bin/tsc
+      - name: Pack and assert surface
+        id: surface
+        run: node scripts/pack-release.mjs surface
+      - name: Install SDK against packed surface
+        env:
+          SURFACE_TARBALL: ${{ steps.surface.outputs.tarball }}
+        working-directory: packages/sdk
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts "$SURFACE_TARBALL"
+          test ! -L node_modules/@relayflows/surface
+      - name: Build relayflowd
+        working-directory: kernel
+        run: cargo build --locked --release -p relayflowd
+      - name: Build and execute runtime binaries
+        run: |
+          mkdir -p packages/runtime-darwin-arm64/bin
+          cp kernel/target/release/relayflowd packages/runtime-darwin-arm64/bin/relayflowd
+          node scripts/build-standalone-cli.mjs bun-darwin-arm64 packages/runtime-darwin-arm64/bin/flows
+          chmod +x packages/runtime-darwin-arm64/bin/relayflowd packages/runtime-darwin-arm64/bin/flows
+          packages/runtime-darwin-arm64/bin/relayflowd --help
+          packages/runtime-darwin-arm64/bin/flows check --json testdata/hello-deterministic.flow.yaml
+      - name: Pack and assert runtime (executes both unpacked binaries)
+        run: node scripts/pack-release.mjs runtime-darwin-arm64
+      - name: Keep only the runtime tarball
+        run: find dist/publish -name '*.tgz' ! -name 'relayflows-runtime-darwin-arm64-*' -delete
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-packages-darwin-arm64-${{ needs.gate.outputs.sha }}
+          path: dist/publish/*.tgz
+          if-no-files-found: error
+
+  summary:
+    name: Summary
+    needs: [gate, linux-x64-artifact, package-gates, build, build-darwin-arm64]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Summary
+        env:
+          REF: ${{ inputs.ref }}
+          SHA: ${{ needs.gate.outputs.sha }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          {
+            echo "### flows fast path"
+            echo "- ref: \`$REF\` at \`$SHA\`"
+            echo "- reason: $REASON"
+            echo "- nothing published (npm trusted publishing is bound to publish.yml)"
+            echo "- artifacts:"
+            echo "  - \`npm-packages-linux-$SHA\` (surface, sdk, relayflows, runtime-linux-x64)"
+            echo "  - \`npm-packages-darwin-arm64-$SHA\` (runtime-darwin-arm64)"
+            echo "  - \`relayflow-v2-linux-x64-$SHA\` (cloud runtime artifact)"
+            echo "  - \`schema-$SHA\` (schema data package)"
+          } >> "$GITHUB_STEP_SUMMARY"
