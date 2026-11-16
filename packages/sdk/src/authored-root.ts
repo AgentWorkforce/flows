@@ -88,7 +88,7 @@ export async function executeDurableAuthoredFlow(
   input: unknown,
   options: DurableAuthoredOptions,
 ): Promise<DurableAuthoredFlowResult> {
-  assertAuthoredRuntimeAvailable();
+  await assertAuthoredRuntimeAvailable();
   const source = await readFile(loaded.sourcePath);
   const sources = await Promise.all(loaded.graph.map(async node => Object.freeze({
     path: node.path,
@@ -196,7 +196,7 @@ export async function resumeDurableAuthoredFlow(
     options.lifecycle?.onRunReceipt?.({ runId: rootRunId, flow: metadata.flowName });
     return completed;
   }
-  assertAuthoredRuntimeAvailable();
+  await assertAuthoredRuntimeAvailable();
   const loaded = await loadPinnedAuthoredSource(metadata);
   // Source loading itself can alter a process-wide intrinsic. Refuse before
   // run.resume dispatches a pinned parallel root in that environment.
