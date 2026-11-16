@@ -655,6 +655,56 @@ fn heartbeat_carries_the_remaining_lease_as_a_duration() {
     );
 }
 
+/// The worker adds `lease_ttl_ms` to the time it sent the heartbeat. The
+/// duration has to be measured when the deadline is set, not when the
+/// durable write returns. A lock held across that write must not shrink it.
+#[test]
+fn heartbeat_ttl_keeps_the_full_lease_across_a_slow_durable_write() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let worker_peer = attach_llm_worker(data_dir, &hub, 1);
+    let mut worker_reader = BufReader::new(worker_peer);
+    let run_id = start_llm_run(data_dir, &hub);
+    let dispatch = read_frame(&mut worker_reader);
+    let database = data_dir.join("relayflowd.sqlite3");
+    let held = Arc::new(std::sync::Barrier::new(2));
+    let release = held.clone();
+    let locked = database.clone();
+    let locker = thread::spawn(move || {
+        let connection = rusqlite::Connection::open(&locked).unwrap();
+        connection.busy_timeout(Duration::from_secs(5)).unwrap();
+        connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        release.wait();
+        thread::sleep(Duration::from_millis(2_000));
+        connection.execute_batch("COMMIT").unwrap();
+    });
+    held.wait();
+    let (writer, _peer) = shared_writer();
+    let response = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"heartbeat","verb":"step.heartbeat","params":{
+            "run_id":run_id,
+            "step_id":dispatch["data"]["step_id"],
+            "attempt":dispatch["data"]["attempt"],
+            "lease_id":dispatch["data"]["lease_id"],
+        }})
+        .to_string(),
+    );
+    locker.join().unwrap();
+    assert!(response.ok, "heartbeat failed: {:?}", response.error);
+    let ttl = response.result.unwrap()["lease_ttl_ms"]
+        .as_i64()
+        .expect("lease_ttl_ms");
+    assert!(
+        ttl >= 29_000,
+        "a 2s journal wait shortened the lease the worker adds to its send time: {ttl}"
+    );
+}
+
 /// Finding 3: a hung worker that stops heartbeating past its lease deadline —
 /// socket still open, so no disconnect fires — must not leave the run in
 /// waiting_worker forever. The reconciler journals a `lease_expired`

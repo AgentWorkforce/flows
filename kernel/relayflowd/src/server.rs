@@ -420,11 +420,15 @@ fn handle_request(
             engine
                 .renew_lease(&params.run_id, run_deadline)
                 .map_err(internal_error)?;
-            // `lease_ttl_ms`: the same deadline as a duration, so the worker can
-            // time it on its own clock (see the dispatch frame in assignments.rs).
+            // `lease_ttl_ms` is that deadline measured from `now`, the instant
+            // it was set, before the durable write above. The worker adds the
+            // duration to the time it sent the heartbeat. Measuring it after
+            // the write would subtract the wait again: a 14s lock would leave
+            // the worker about 2s on a lease this daemon had just extended to
+            // 16s. See the dispatch frame in assignments.rs.
             Ok(json!({
                 "lease_deadline_ms": deadline,
-                "lease_ttl_ms": deadline.saturating_sub(now_ms()).max(0),
+                "lease_ttl_ms": deadline.saturating_sub(now).max(0),
             }))
         }
         "step.complete" => {

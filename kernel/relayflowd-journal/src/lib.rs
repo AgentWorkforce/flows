@@ -6,6 +6,7 @@ mod memory;
 mod placement;
 mod registry;
 mod segment;
+pub(crate) mod sqlite;
 mod subscriptions;
 
 use std::path::{Path, PathBuf};
@@ -127,6 +128,10 @@ impl SqliteJournal {
     pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self, JournalStoreError> {
         let path = path.as_ref().to_path_buf();
         let connection = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        // No journal-mode change and no schema work. The busy handler is
+        // still per connection; without it a checkpoint fails the read
+        // immediately.
+        sqlite::set_busy_timeout(&connection)?;
         let run_id =
             connection.query_row("SELECT value FROM meta WHERE key = 'run_id'", [], |row| {
                 row.get(0)
@@ -223,12 +228,16 @@ impl SqliteJournal {
     }
 }
 
-fn configure(connection: &Connection) -> Result<(), rusqlite::Error> {
-    connection.execute_batch(
-        "PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = FULL;
-         PRAGMA foreign_keys = ON;",
-    )
+fn configure(connection: &Connection) -> Result<(), JournalStoreError> {
+    match sqlite::ensure_wal(connection) {
+        Ok(()) => {}
+        Err(sqlite::WalError::NotWal(actual)) => {
+            return Err(JournalStoreError::JournalNotWal { actual });
+        }
+        Err(sqlite::WalError::Sqlite(error)) => return Err(error.into()),
+    }
+    connection.execute_batch("PRAGMA foreign_keys = ON;")?;
+    Ok(())
 }
 
 impl Journal for SqliteJournal {
@@ -278,6 +287,11 @@ pub enum JournalStoreError {
          concurrent deliveries would not be durable"
     )]
     RegistryNotWal { path: PathBuf, actual: String },
+    #[error(
+        "SQLite journal is in mode {actual}, not WAL; \
+         concurrent writers would fail with database is locked"
+    )]
+    JournalNotWal { actual: String },
     #[error("journal I/O failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("SQLite journal failed: {0}")]
@@ -361,6 +375,11 @@ mod tests {
             .query_row("PRAGMA synchronous", [], |row| row.get(0))
             .unwrap();
         assert_eq!(synchronous, 2, "SQLite FULL synchronous mode");
+        let busy: i64 = reopened
+            .connection
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(busy, super::sqlite::BUSY_TIMEOUT.as_millis() as i64);
     }
 
     #[test]
