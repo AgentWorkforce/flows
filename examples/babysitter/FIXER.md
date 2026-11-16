@@ -159,6 +159,25 @@ a typed task instead of a GitHub delivery (`task.ts`, `task-admission.ts`).
   agent. The agent only resolves; it never commits.
 - Without a task, admission and the run are exactly as above.
 
+### Merge-train service origin (dormant contract)
+
+For `fix_ci` only, Cloud may pass a distinct `originContext` with `source:
+"merge_train_service"`, a grant ID, a persisted origin ID, and the exact
+repository, PR number, head SHA, tree SHA and failure digest. Task admission
+checks its shape and its PR/head binding before a live read. It rejects extra
+keys, malformed identifiers, and service origins on other task kinds. The agent
+gets a fixed, narrow CI-repair task definition rather than a fabricated human
+first prompt or session. It starts with a fresh checkout and agent session,
+without restoring a cached human session. CI output and PR text remain
+untrusted data. The run still proposes a patch; it never publishes one.
+
+This parser is **not** an authorization check. Cloud must verify the service
+grant, origin receipt, GitHub head/tree/failure and idempotent claim before
+launch, and repeat the authority checks before server-side publication. A
+caller-provided context cannot grant any of those permissions. The new fixer
+artifact digest must be pinned by Cloud in a separate reviewed change, and
+the repair dispatcher remains disabled until that full path is proven.
+
 **Proposal v2.** `schemaVersion` is 2 only when `mergeParent` is present;
 every other proposal stays schema 1, byte-compatible with today's parser.
 
