@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -250,6 +250,46 @@ it('recalls a learned finding from its file and leaves the database unchanged', 
   expect(diskEntry!.id).toBeLessThan(0);
   expect(dbDigest()).toBe(before);
   expect(await memory.why('synced finding')).toMatchObject([{ id: expect.stringMatching(/^flows-memory-/), decisions: [{ chosen: 'c' }] }]);
+});
+
+it('pages through a learned finding and history without repeating the finding', async () => {
+  const memory = memoryFor(scope);
+  await memory.learn({ question: 'paged finding', chosen: 'c', reasoning: 'r' });
+  const newest = await memory.recall('', { limit: 1 });
+  expect(newest).toMatchObject([{ source: 'trajectory' }]);
+  const older = await memory.recall('', {
+    limit: 1,
+    after: { timestampMs: newest[0]!.timestampMs, id: newest[0]!.id },
+  });
+  expect(older).toMatchObject([{ id: 1, source: 'claude', project: scope }]);
+  expect(await memory.recall('', {
+    limit: 1,
+    after: { timestampMs: older[0]!.timestampMs, id: older[0]!.id, matchSource: 'history' },
+  })).toEqual([]);
+
+  const directory = compactedDir();
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, 'flows-memory-old.json'), `${JSON.stringify({
+    id: 'flows-memory-old',
+    completedAt: '1970-01-01T00:00:00.500Z',
+    decisions: [{ question: 'old finding', chosen: 'c', reasoning: 'r', alternatives: [] }],
+  })}\n`);
+  const first = await memory.recall('', { limit: 1 });
+  expect(first).toMatchObject([{ source: 'trajectory' }]);
+  const second = await memory.recall('', {
+    limit: 1,
+    after: { timestampMs: first[0]!.timestampMs, id: first[0]!.id },
+  });
+  expect(second).toMatchObject([{ id: 1, source: 'claude' }]);
+  const third = await memory.recall('', {
+    limit: 1,
+    after: { timestampMs: second[0]!.timestampMs, id: second[0]!.id, matchSource: 'history' },
+  });
+  expect(third).toMatchObject([{ source: 'trajectory', prompt: expect.stringContaining('old finding') }]);
+  expect(await memory.recall('', {
+    limit: 1,
+    after: { timestampMs: third[0]!.timestampMs, id: third[0]!.id },
+  })).toEqual([]);
 });
 
 it('applies recall options to findings not yet synced', async () => {

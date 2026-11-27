@@ -136,8 +136,10 @@ No process runs between events: the handler wakes, executes to its next await, p
    check; direct `.memory` use also triggers it. Aliased access is checked at
    call time. The local Node SDK and an existing readable SQLite file are required
    (`AI_HIST_DB` overrides `defaultDbPath()`). A missing, unreadable, or
-   non-file database is `memory_unreachable` before the body runs, so search
-   is not allowed to treat a missing file as empty or scan other history.
+   non-file database is `memory_unreachable`. A declared `memory` header or
+   direct `.memory` use is refused before the body runs. An aliased helper is
+   probed at its first call, so the body can fail after earlier effects.
+   Search is not allowed to treat a missing file as empty or scan other history.
    `learn(finding)` journals first. It stages the finding's compacted
    trajectory file under a temporary name,
    appends the finding to the durable root run's `memory-learn` stream, and

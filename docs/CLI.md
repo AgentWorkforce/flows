@@ -263,7 +263,7 @@ Resume an interrupted local run from where its journal left off
 | `--local-agent` | Run agent steps in this process (bound to this terminal unless --detach) | — |
 | `--detach` | Start in a separate process, print the run handle and exit; follow with flows status | — |
 | `--agent-capacity <n>` | With --local-agent, how many agent steps (and, separately, LLM steps) run at once (1-32) | `4` |
-| `--service-caller-file <caller.json>` | With --local-agent, use this explicit Desktop schema-v2 service caller for relay agent steps | — |
+| `--service-caller-file <caller.json>` | With --local-agent, use this absolute path to an explicit Desktop schema-v2 service caller for relay agent steps | — |
 | `--no-spawn` | Require a running relayflowd rather than starting one | — |
 | `--no-observer-link` | Do not mint an observer link for this run | — |
 | `--cloud-mirror` | Also put this run on the Cloud dashboard (also FLOWS_CLOUD_MIRROR=1) | — |
@@ -284,7 +284,7 @@ Run locally with an Observer link (workspace key) or --cloud-mirror (Cloud dashb
 | `--local-agent` | Run agent steps in this process (bound to this terminal unless --detach) | — |
 | `--detach` | Start in a separate process, print the run handle and exit; follow with flows status | — |
 | `--agent-capacity <n>` | With --local-agent, how many agent steps (and, separately, LLM steps) run at once (1-32) | `4` |
-| `--service-caller-file <caller.json>` | With --local-agent, use this explicit Desktop schema-v2 service caller for relay agent steps | — |
+| `--service-caller-file <caller.json>` | With --local-agent, use this absolute path to an explicit Desktop schema-v2 service caller for relay agent steps | — |
 | `--no-spawn` | Require a running relayflowd rather than starting one | — |
 | `--no-observer-link` | Do not mint an observer link for this run | — |
 | `--cloud-mirror` | Also put this run on the Cloud dashboard (also FLOWS_CLOUD_MIRROR=1) | — |

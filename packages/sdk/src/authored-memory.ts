@@ -458,11 +458,19 @@ function trajectoryMatches(entry: TrajectoryEntry, query: string): boolean {
     .some(field => includesFolded(field, needle));
 }
 
+/** Newest-first order shared with ai-hist search: timestamp, then id, then match source. */
+type RecallMatchSource = 'history' | 'session_event';
+
+interface RankedHistory extends HistoryEntry {
+  matchSource: RecallMatchSource;
+}
+
 /**
  * History rows for this script scope, plus learned findings still only on disk.
  * ai-hist matches `project` as a substring, so results are kept only when
  * `project` is exactly the scope. A caller cannot point the read at another
- * database or another flow.
+ * database or another flow. `after` applies to both sources, in the same
+ * newest-first order `search` uses.
  */
 async function recallMerged(
   dbPath: string,
@@ -473,15 +481,43 @@ async function recallMerged(
 ): Promise<HistoryEntry[]> {
   const limit = options?.limit ?? 50;
   const needle = query.trim();
-  const fromDisk = learned.map(entry => entry.history).filter(entry => diskVisible(entry, options, needle));
+  const fromDisk = learned
+    .map(entry => entry.history)
+    .filter(entry => diskVisible(entry, options, needle))
+    .map(entry => rankedHistory(entry, 'history'));
   const synced = await searchExact(query, dbPath, scope, options, limit);
   return [...synced.map(historyFromMatch), ...fromDisk]
-    .sort((a, b) => b.timestampMs - a.timestampMs)
-    .slice(0, limit);
+    .sort(compareNewestFirst)
+    .slice(0, limit)
+    .map(publishedHistory);
 }
 
-function historyFromMatch(match: import('ai-hist').SearchMatch): HistoryEntry {
+function rankedHistory(entry: HistoryEntry, matchSource: RecallMatchSource): RankedHistory {
+  return { ...entry, matchSource };
+}
+
+/** `(timestampMs DESC, id DESC, matchSource ASC)`, matching `append_window_filters`. */
+function compareNewestFirst(a: RankedHistory, b: RankedHistory): number {
+  if (a.timestampMs !== b.timestampMs) return b.timestampMs - a.timestampMs;
+  if (a.id !== b.id) return b.id - a.id;
+  if (a.matchSource === b.matchSource) return 0;
+  return a.matchSource < b.matchSource ? -1 : 1;
+}
+
+function publishedHistory(row: RankedHistory): HistoryEntry {
   return {
+    id: row.id,
+    source: row.source,
+    sessionId: row.sessionId,
+    project: row.project,
+    prompt: row.prompt,
+    timestampMs: row.timestampMs,
+    locations: row.locations,
+  };
+}
+
+function historyFromMatch(match: import('ai-hist').SearchMatch): RankedHistory {
+  return rankedHistory({
     id: match.id,
     source: match.source,
     sessionId: match.sessionId,
@@ -489,10 +525,20 @@ function historyFromMatch(match: import('ai-hist').SearchMatch): HistoryEntry {
     prompt: match.prompt,
     timestampMs: match.timestampMs,
     locations: match.locations,
-  };
+  }, match.matchSource);
 }
 
-/** Page past substring project hits until `needed` rows belong to this scope. */
+/** Rows read per native page while dropping substring project hits. */
+const EXACT_SCOPE_PAGE = 100;
+/** Full pages scanned before recall refuses an unfinished exact-scope read. */
+const EXACT_SCOPE_PAGE_CAP = 1000;
+
+/**
+ * Page past substring project hits until `needed` rows belong to this scope.
+ * The caller's limit is how many exact rows to return. A short native page
+ * would let a prefix of `${scope}-other` rows hide an older exact match, and
+ * stopping at the cap used to look like an empty result.
+ */
 async function searchExact(
   query: string,
   dbPath: string,
@@ -505,9 +551,9 @@ async function searchExact(
   const { search } = await import('ai-hist');
   const exact: import('ai-hist').SearchMatch[] = [];
   let after = options?.after;
-  const pageSize = Math.max(needed, 1);
+  const pageSize = Math.max(needed, EXACT_SCOPE_PAGE);
   let previous: string | undefined;
-  for (let page = 0; page < 1000 && exact.length < needed; page += 1) {
+  for (let page = 0; exact.length < needed; page += 1) {
     const matches = await search(query, { ...options, dbPath, project: scope, after, limit: pageSize });
     if (matches.length === 0) break;
     for (const match of matches) {
@@ -517,6 +563,9 @@ async function searchExact(
     const last = matches[matches.length - 1]!;
     const key = `${last.timestampMs}:${last.id}:${last.matchSource}`;
     if (matches.length < pageSize || key === previous) break;
+    if (page + 1 >= EXACT_SCOPE_PAGE_CAP) {
+      throw new Error(`recall scanned ${EXACT_SCOPE_PAGE_CAP} pages without finding ${needed} history row(s) in this script scope`);
+    }
     previous = key;
     after = { timestampMs: last.timestampMs, id: last.id, matchSource: last.matchSource };
   }
@@ -536,5 +585,17 @@ function diskVisible(entry: HistoryEntry, options: MemoryRecallOptions | undefin
   if (options?.beforeMs !== undefined && entry.timestampMs >= options.beforeMs) return false;
   if (options?.sinceMs !== undefined && entry.timestampMs < options.sinceMs) return false;
   if (options?.untilMs !== undefined && entry.timestampMs > options.untilMs) return false;
+  if (options?.after !== undefined && !strictlyAfterHistory(entry, options.after)) return false;
   return true;
+}
+
+/**
+ * True when a learned file, which sorts as a history match, is strictly after
+ * `cursor` in newest-first `(timestampMs DESC, id DESC)` order. The same
+ * `(timestampMs, id)` is the cursor row itself, or a `session_event` that
+ * already sorts after every history row.
+ */
+function strictlyAfterHistory(entry: HistoryEntry, cursor: NonNullable<MemoryRecallOptions['after']>): boolean {
+  if (entry.timestampMs !== cursor.timestampMs) return entry.timestampMs < cursor.timestampMs;
+  return entry.id < cursor.id;
 }

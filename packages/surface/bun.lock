@@ -5,7 +5,7 @@
     "": {
       "name": "@relayflows/surface",
       "dependencies": {
-        "ai-hist": "0.4.1",
+        "ai-hist": "0.63.1",
       },
       "devDependencies": {
         "@types/node": "^22.20.2",
@@ -182,7 +182,25 @@
 
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 
-    "ai-hist": ["ai-hist@0.4.1", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "sql.js": "^1.13.0", "zod": "^4.4.3" }, "bin": { "ai-hist-mcp": "dist/mcp-server.js" } }, "sha512-qn/jXFtWoY4timtzRj1DO5RgqPJA8UoDAm9Qe3bJ9wM3ph+McK+kY/6H2YDUs67MHzWjGlSc1KAe6cdmFbDfeQ=="],
+    "ai-hist": ["ai-hist@0.63.1", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "ai-hist-native": "0.63.1", "zod": "^4.4.3" }, "bin": { "ai-hist": "dist/cli.js", "ai-hist-mcp": "dist/mcp-server.js" } }, "sha512-do8ipeFrLmbso4pFS2QDEaD0jMsv/lw2+uSisen6nKe7I0JyovL/oMLnWJztG5JjADbvPQKoUBvNRvX/SGwLCA=="],
+
+    "ai-hist-native": ["ai-hist-native@0.63.1", "", { "optionalDependencies": { "ai-hist-native-darwin-arm64": "0.63.1", "ai-hist-native-darwin-x64": "0.63.1", "ai-hist-native-linux-arm64-gnu": "0.63.1", "ai-hist-native-linux-arm64-musl": "0.63.1", "ai-hist-native-linux-x64-gnu": "0.63.1", "ai-hist-native-linux-x64-musl": "0.63.1", "ai-hist-native-win32-arm64-msvc": "0.63.1", "ai-hist-native-win32-x64-msvc": "0.63.1" } }, "sha512-0DC7aeN6y6c47zIOTg3AsMx9/FJ6kYKzGeC4k//MD+aaj4VQTLJ2FUpRy3OC1wVpBLilRksA+valDnfpMDk7IQ=="],
+
+    "ai-hist-native-darwin-arm64": ["ai-hist-native-darwin-arm64@0.63.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-UZ639qYay1nxBOXoJfMZdG5a/lX++EN2TqR4QGPWKp5F9ISvpygvbM8/vidyzztSXv1AAwWDHk/bPsYnUlLRsA=="],
+
+    "ai-hist-native-darwin-x64": ["ai-hist-native-darwin-x64@0.63.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-XNFTMOdNTf8tzdG2XWVQeaNFvqaTO/7yIYiofIQiluR++rmM3U7pPqNJ6W7y2+j0TVsqnrvzyzyjkYQ53/1Kkg=="],
+
+    "ai-hist-native-linux-arm64-gnu": ["ai-hist-native-linux-arm64-gnu@0.63.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-mZ5uhljTLwT9IfT8hnyEbM0YRacI6Z98y6U9H5pYbnVFhm8KqibLVNi8MvNzeLsabpN/H5249r8og4gWw91ZDw=="],
+
+    "ai-hist-native-linux-arm64-musl": ["ai-hist-native-linux-arm64-musl@0.63.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-AQkMLqwRe0dO2WfWu3ifkRHlf6akf5S0szya6WzbYA5GX5ilPrMB5ZIsC5Ox2upZSc8gD/pJ4Kni8aLG9XNhQA=="],
+
+    "ai-hist-native-linux-x64-gnu": ["ai-hist-native-linux-x64-gnu@0.63.1", "", { "os": "linux", "cpu": "x64" }, "sha512-EW+P9Pds+yvIRoV23W/W4FKP9AlIKNLiu6dMBm2c+msAGfZVdvVDKVVn2E5nDwy4lKUFPaNYyCLwGtCDsksHoA=="],
+
+    "ai-hist-native-linux-x64-musl": ["ai-hist-native-linux-x64-musl@0.63.1", "", { "os": "linux", "cpu": "x64" }, "sha512-pA9o06NE/CgCOryYC7smHx/ToEH33ylhgNwFACmLCQYtU32dXV2sF0ujuTqBLHrKiTetA0p3Yoa4jgqjC+PwAA=="],
+
+    "ai-hist-native-win32-arm64-msvc": ["ai-hist-native-win32-arm64-msvc@0.63.1", "", { "os": "win32", "cpu": "arm64" }, "sha512-whNqbJxTb+ATuSXrLLsVgls4j86/wsMtA4JryQ7IPex4KDMGFlLn8KfjyzNZ+eJgXy7Md8hSfvdLYgxMC30vkQ=="],
+
+    "ai-hist-native-win32-x64-msvc": ["ai-hist-native-win32-x64-msvc@0.63.1", "", { "os": "win32", "cpu": "x64" }, "sha512-XDE4GAbqcMfiff6z5egjLU2FDMJnLjrRpq6JDduMuQtJ4W9WHCcKFjsHg6sFrLpKOzJ3GHk3TRoLm2v17enpxA=="],
 
     "ajv": ["ajv@8.20.0", "", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA=="],
 
@@ -427,8 +445,6 @@
     "siginfo": ["siginfo@2.0.0", "", {}, "sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g=="],
 
     "source-map-js": ["source-map-js@1.2.1", "", {}, "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="],
-
-    "sql.js": ["sql.js@1.14.2", "", {}, "sha512-3ZGPovObMFrdw79zrUHbfdE/DLIsy8jdNdssmMSQuRAymedU6q84asPt0kgiqrdMYlPegDItiIMfmIXzZnYFcw=="],
 
     "stackback": ["stackback@0.0.2", "", {}, "sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw=="],
 

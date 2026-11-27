@@ -97,7 +97,7 @@ const LOCAL_EXECUTION_OPTIONS = [
   },
   {
     flags: '--service-caller-file <caller.json>',
-    description: 'With --local-agent, use this explicit Desktop schema-v2 service caller for relay agent steps',
+    description: 'With --local-agent, use this absolute path to an explicit Desktop schema-v2 service caller for relay agent steps',
   },
   { flags: '--no-spawn', description: 'Require a running relayflowd rather than starting one' },
   { flags: '--no-observer-link', description: 'Do not mint an observer link for this run' },
