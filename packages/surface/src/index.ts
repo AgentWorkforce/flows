@@ -46,7 +46,7 @@ export {
   type SlackPostOptions,
 } from "./slack.js";
 export type { Helpers } from "./helpers/index.js";
-export type { MemoryHelper, MemoryFinding, MemoryRecallOptions, HistoryEntry, TrajectoryEntry } from "./memory.js";
+export type { MemoryHelper, MemoryFinding, MemoryRecallOptions, HistoryEntry, TrajectoryEntry, TrajectoryDecision } from "./memory.js";
 export { webhook, type TriggerSource, type WebhookTriggerSource, type WebhookFilter, type WebhookValue } from "./triggers.js";
 export {
   schedule, scheduleIdFor, parseCron, cronGrid, cronFixedIntervalMs, cronMaxGapMs, everyToMs,

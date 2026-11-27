@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +18,7 @@ vi.mock('node:fs/promises', async importOriginal => {
     },
   };
 });
-import { openAiHist } from 'ai-hist';
+import { search } from 'ai-hist';
 import { authoredMemory, journalLearnLedger, MEMORY_LEARN_STREAM, scriptMemoryScope } from '../src/authored-memory.js';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { AuthoredFlowExecutionError } from '../src/authored-flow-error.js';
@@ -73,14 +72,14 @@ beforeEach(() => { store = streamStore(); });
 const memoryFor = (forScope: string) => authoredMemory(forScope, () => {}, true, undefined, journalLearnLedger(store, 'root-1'));
 const compactedDir = (forScope = scope) => join(dir, 'flows-memory', basename(forScope), '.trajectories', 'compacted');
 
-it('reads the seeded local SQLite database with cloud unused and fallback disabled', async () => {
-  const db = await openAiHist({ dbPath, projectScope: scope, fallback: 'error' });
-  try { expect(db.search('retry safely')).toHaveLength(1); } finally { db.close(); }
+it('reads the seeded local SQLite database and keeps the other script scope out', async () => {
+  // ai-hist matches `project` as a substring, so this query also hits `${scope}-other`.
+  const hits = await search('retry safely', { dbPath, project: scope, limit: 10 });
+  expect(hits.map(hit => hit.project).sort()).toEqual([scope, `${scope}-other`].sort());
   const memory = memoryFor(scope);
-  expect(await memory.recall('retry safely')).toMatchObject([{ id: 1, project: scope }]);
-  expect(await memory.why('retry safely')).toMatchObject([{
-    id: 'run-1', decisions: [{ chosen: 'idempotency key', reasoning: 'avoid duplicate writes' }],
-  }]);
+  expect(await memory.recall('retry safely')).toMatchObject([{ id: 1, project: scope, source: 'claude' }]);
+  // Decision trajectories are learned files. A history prompt is not one.
+  expect(await memory.why('retry safely')).toEqual([]);
   expect(await memory.recall('no match')).toEqual([]);
   expect(await memory.why('no match')).toEqual([]);
 });
@@ -106,7 +105,7 @@ it('attaches read helpers without journaling read steps', async () => {
   }] } as never);
   const handle = flow('memory-example', { memory: { script: true } }, async f => {
     expect(await f.memory.recall('retry safely')).toHaveLength(1);
-    expect(await f.memory.why('retry safely')).toHaveLength(1);
+    expect(await f.memory.why('retry safely')).toEqual([]);
     f.done('success');
   });
   const result = await executeAuthoredFlow(handle, journal, undefined, { flowPath: join(dir, 'test.flow.ts') });
@@ -182,7 +181,7 @@ it('persists a learned finding that a later run of the same flow recalls', async
   expect(recalled).toMatchObject([{ source: 'trajectory', project: scope }]);
   expect(why).toMatchObject([{ projectId: scope, decisions: [finding] }]);
 
-  // The trajectory file is what a later `ai-hist sync` re-ingests.
+  // The trajectory file is the decision `why` reads. ai-hist does not ingest it.
   const compacted = compactedDir();
   const [file] = readdirSync(compacted);
   expect(JSON.parse(readFileSync(join(compacted, file!), 'utf8'))).toMatchObject({ projectId: scope, decisions: [finding] });
@@ -242,29 +241,15 @@ it('keeps concurrent findings without touching the shared database', async () =>
   expect(readdirSync(compactedDir()).filter(name => !name.endsWith('.json'))).toEqual([]);
 });
 
-it('dedupes a finding once ai-hist sync has indexed it, preferring the synced row', async () => {
+it('recalls a learned finding from its file and leaves the database unchanged', async () => {
+  const before = dbDigest();
   const memory = memoryFor(scope);
   await memory.learn({ question: 'synced finding', chosen: 'c', reasoning: 'r' });
   const [diskEntry] = await memory.recall('synced finding');
-  expect(diskEntry).toMatchObject({ source: 'trajectory', project: scope });
+  expect(diskEntry).toMatchObject({ source: 'trajectory', project: scope, locations: [] });
   expect(diskEntry!.id).toBeLessThan(0);
-
-  // What `ai-hist sync` writes for the trajectory file.
-  const [name] = readdirSync(compactedDir());
-  const raw = JSON.parse(readFileSync(join(compactedDir(), name!), 'utf8'));
-  const require = createRequire(import.meta.url);
-  const SQL = await createRequire(require.resolve('ai-hist/package.json'))('sql.js')();
-  const db = new SQL.Database(readFileSync(dbPath));
-  const ts = Date.parse(raw.completedAt);
-  db.run('INSERT INTO trajectories VALUES (?, 1, NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-    raw.id, scope, raw.task.title, 'completed', raw.startedAt, raw.completedAt,
-    JSON.stringify(raw.decisions), JSON.stringify(raw.retrospective), diskEntry!.prompt, join(compactedDir(), name!), ts, ts]);
-  db.run('INSERT INTO history VALUES (?, ?, ?, ?, ?, ?, ?)', [99, 'trajectory', raw.id, scope, diskEntry!.prompt, ts, null]);
-  writeFileSync(dbPath, Buffer.from(db.export()));
-  db.close();
-
-  expect(await memory.recall('synced finding')).toMatchObject([{ id: 99, sessionId: raw.id }]);
-  expect(await memory.why('synced finding')).toMatchObject([{ id: raw.id }]);
+  expect(dbDigest()).toBe(before);
+  expect(await memory.why('synced finding')).toMatchObject([{ id: expect.stringMatching(/^flows-memory-/), decisions: [{ chosen: 'c' }] }]);
 });
 
 it('applies recall options to findings not yet synced', async () => {

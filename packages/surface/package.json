@@ -67,6 +67,6 @@
     "@relayfile/relay-helpers": "0.6.2"
   },
   "dependencies": {
-    "ai-hist": "0.4.1"
+    "ai-hist": "0.63.1"
   }
 }
