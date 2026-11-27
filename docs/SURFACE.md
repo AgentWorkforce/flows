@@ -134,10 +134,14 @@ No process runs between events: the handler wakes, executes to its next await, p
    the same flow file and name; reads cannot widen it to another flow. The
    existing `memory: { script: true }` header enables an eager reachability
    check; direct `.memory` use also triggers it. Aliased access is checked at
-   call time. The local Node SDK and an existing readable SQLite DB are required
-   (`AI_HIST_DB` overrides `defaultDbPath()`); JSONL fallback is disabled.
+   call time. The local Node SDK and an existing readable SQLite file are required
+   (`AI_HIST_DB` overrides `defaultDbPath()`). A missing, unreadable, or
+   non-file database is `memory_unreachable`. A declared `memory` header or
+   direct `.memory` use is refused before the body runs. An aliased helper is
+   probed at its first call, so the body can fail after earlier effects.
+   Search is not allowed to treat a missing file as empty or scan other history.
    `learn(finding)` journals first. It stages the finding's compacted
-   trajectory file (the format `ai-hist sync` ingests) under a temporary name,
+   trajectory file under a temporary name,
    appends the finding to the durable root run's `memory-learn` stream, and
    only then renames the file into place at
    `<db-dir>/flows-memory/<scope-hash>/.trajectories/compacted/<id>.json`, so
@@ -151,9 +155,12 @@ No process runs between events: the handler wakes, executes to its next await, p
    commit and publishes it without journaling again. Journal errors propagate
    unchanged, so a read interruption or lost lease leaves the root resumable.
    `learn` without a durable root run refuses (`memory_unjournaled`). `recall`
-   and `why` read the ai-hist DB plus the scope's learned files, so the next
-   run sees a finding before any sync; a synced copy is deduplicated in favour
-   of the DB row (an unsynced `recall` entry has a negative `id`), and a
+   searches ai-hist history and keeps a row only when its project is exactly
+   this script scope (ai-hist's own project filter is a substring match), then
+   merges the scope's learned files. `why` returns the newest matching learned
+   decision. ai-hist 0.63 no longer stores trajectories, so a history prompt
+   is not a decision and learned files are not ingested back into the database.
+   A learned `recall` row has a negative `id` and `source: "trajectory"`. A
    damaged learned file fails the read (`memory_unreachable`) rather than
    being skipped. The id hashes scope and finding, so re-learning a finding
    atomically replaces one file. Trajectory files need no lock: each is

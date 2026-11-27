@@ -1,21 +1,23 @@
 # Minimal local script-memory example
 
 This slice implements `f.memory.recall`, `f.memory.why`, and `f.memory.learn`
-through ai-hist 0.4.1. Reads journal nothing. `learn` stages a compacted
+through ai-hist 0.63.1. Reads journal nothing. `learn` stages a compacted
 trajectory file, appends the finding to the durable root run's
 `memory-learn` stream, then renames the file into place at
 `<db-dir>/flows-memory/<scope-hash>/.trajectories/compacted/<id>.json`; the
-file cites the commit. ai-hist 0.4.1 has no trajectory writer and its database is
-never modified; reads merge the database with the scope's learned files. A
-resumed body re-running `learn` republishes from the commit instead of
+file cites the commit. ai-hist 0.63 retired its trajectories table and does
+not ingest these files. The database is never modified. `recall` searches
+history prompts and merges this scope's learned files. `why` reads those
+files only. A resumed body re-running `learn` republishes from the commit instead of
 journaling twice, and `learn` refuses (`memory_unjournaled`) without a root
 run. `tests/memory-learn-live.test.ts` exercises it through the built CLI and
 a real kernel. `memory: { script: true }` is already part
 of the surface header contract and now works in the internal authored executor.
 
-`seed.mjs` creates a new deterministic SQLite database with two script scopes,
-one prompt and one decision trajectory per scope. It never scans host history
-or uses the cloud. Run it with Node after installing `packages/sdk`:
+`seed.mjs` creates a new ai-hist 0.63 database with two script scopes and one
+history prompt per scope. It does not write a decision trajectory: `why` reads
+learned files, not the database. It never scans host history or uses the
+cloud. Run it with Node after installing `packages/sdk`:
 
 ```sh
 node testdata/memory/seed.mjs /tmp/flow-memory.db '<script-scope>'
@@ -24,9 +26,9 @@ node testdata/memory/seed.mjs /tmp/flow-memory.db '<script-scope>'
 The scope is produced by `scriptMemoryScope(flowPath, flowName)` in
 `packages/sdk/src/authored-memory.ts`: SHA-256 of the absolute flow file path
 and flow name, underneath `<flow-directory>/.relayflows/memory/scripts/`.
-Seed/import script entries with that value as history `project` and trajectory
-`project_id`. It is stable across runs, and changes when the flow moves or is
-renamed. It is separate from identity-scoped agent memory. The regression test
+Seed history rows with that value as `project`. It is stable across runs, and
+changes when the flow moves or is renamed. It is separate from identity-scoped
+agent memory. The regression test
 computes it and seeds a temporary database automatically:
 
 ```sh
@@ -45,9 +47,9 @@ flow('memory-example', { memory: { script: true } }, async f => {
 });
 ```
 
-Set `AI_HIST_DB` to the seeded DB. The adapter uses `fallback: 'error'` and
-requires an existing SQLite file; a missing DB is `memory_unreachable`, rather
-than ai-hist's automatic scan of unrelated local JSONL history.
+Set `AI_HIST_DB` to the seeded DB. The probe requires an existing SQLite file;
+a missing DB is `memory_unreachable`. `search` on a missing path returns no
+rows and does not create the file, so the probe checks the path before searching.
 
 ## Deferred acceptance work
 

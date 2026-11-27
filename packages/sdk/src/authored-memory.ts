@@ -15,12 +15,13 @@ export function scriptMemoryScope(flowPath: string, name: string): string {
 }
 
 export async function probeScriptMemory(): Promise<void> {
-  const { defaultDbPath, openAiHist } = await import('ai-hist');
+  const { defaultDbPath, search } = await import('ai-hist');
   const path = defaultDbPath();
   await access(path, constants.R_OK);
   if (!(await stat(path)).isFile()) throw new Error('memory database must be a file');
-  const reader = await openAiHist({ dbPath: path, fallback: 'error' });
-  try { reader.search('', { limit: 1 }); } finally { reader.close(); }
+  // A missing path makes `search` return nothing and creates no file, so the
+  // access check above is what refuses it. A corrupt database throws.
+  await search('', { dbPath: path, limit: 1 });
 }
 
 export async function assertMemoryReachable(): Promise<void> {
@@ -169,15 +170,15 @@ export function authoredMemory(
   function assertEnabled(): void {
     if (!enabled) throw new AuthoredFlowExecutionError('unsupported_header', 'f.memory requires script memory; memory.script is false');
   }
-  async function read<T>(action: (reader: import('ai-hist').AiHist, learned: LearnedTrajectory[]) => T): Promise<T> {
+  async function read<T>(action: (dbPath: string, learned: LearnedTrajectory[]) => T | Promise<T>): Promise<T> {
     assertOpen();
     assertEnabled();
     await assertMemoryReachable();
     assertOpen();
-    const { defaultDbPath, openAiHist } = await import('ai-hist');
-    const learned = await readLearned(defaultDbPath(), scope);
-    const reader = await openAiHist({ projectScope: scope, fallback: 'error' });
-    try { return action(reader, learned); } finally { reader.close(); }
+    const { defaultDbPath } = await import('ai-hist');
+    const dbPath = defaultDbPath();
+    const learned = await readLearned(dbPath, scope);
+    return action(dbPath, learned);
   }
   /**
    * Journal first, then publish. The trajectory file is staged under a name
@@ -238,14 +239,14 @@ export function authoredMemory(
     await pending;
   }
   return {
-    recall: (query, options) => read((reader, learned) => recallMerged(reader, learned, scope, query, options)),
-    why: task => read((reader, learned) => {
-      const synced = reader.whyForTask(task);
-      const candidates = [
-        ...(synced?.projectId === scope ? [synced] : []),
-        ...learned.map(entry => entry.trajectory).filter(entry => trajectoryMatches(entry, task)),
-      ];
-      const newest = candidates.sort((a, b) => b.timestampMs - a.timestampMs)[0];
+    recall: (query, options) => read((dbPath, learned) => recallMerged(dbPath, learned, scope, query, options)),
+    why: task => read((_dbPath, learned) => {
+      // ai-hist 0.63 retired the trajectories table. Decisions live in the
+      // learned files this flow writes beside the database.
+      const newest = learned
+        .map(entry => entry.trajectory)
+        .filter(entry => trajectoryMatches(entry, task))
+        .sort((a, b) => b.timestampMs - a.timestampMs)[0];
       return newest === undefined ? [] : [newest];
     }),
     learn(finding) {
@@ -278,10 +279,8 @@ function normalizeFinding(finding: MemoryFinding): Required<MemoryFinding> {
  * Learned findings live beside the ai-hist database, not beside the flow
  * source: a flow deployed from a read-only checkout, package or image can
  * still learn. The directory is keyed by the scope's hash, and each file
- * still names the scope as its `projectId`. Reads here do not need
- * `ai-hist sync`. For sync to index them too, add `<db-dir>/flows-memory` to
- * `TRAJECTORY_ROOT` together with the roots it already scans: setting it
- * replaces ai-hist's default `~/Projects` scan rather than adding to it.
+ * still names the scope as its `projectId`. ai-hist 0.63 does not ingest
+ * these files; `recall` and `why` read them directly.
  */
 const learnedDir = (dbPath: string, scope: string): string =>
   join(dirname(dbPath), 'flows-memory', basename(scope), '.trajectories', 'compacted');
@@ -429,7 +428,7 @@ function learnedEntry(scope: string, path: string, text: string, updatedMs: numb
   const id = value.id;
   const completedAt = typeof value.completedAt === 'string' ? value.completedAt : null;
   const timestampMs = completedAt !== null && Number.isFinite(Date.parse(completedAt)) ? Date.parse(completedAt) : updatedMs;
-  // Same field order ai-hist's buildSearchText uses, so matching agrees with a later sync.
+  // The text `recall` matches for a finding that is not a history row.
   const searchText = [id, scope, 'completed', title, description,
     ...parsed.flatMap(d => [d.question, d.chosen, d.reasoning, ...d.alternatives])]
     .filter((part): part is string => typeof part === 'string' && part.length > 0).join('\n');
@@ -441,11 +440,10 @@ function learnedEntry(scope: string, path: string, text: string, updatedMs: numb
       decisions: parsed, retrospective: { summary: null, approach: null, learnings: [], confidence: null },
       searchText, path, updatedMs, timestampMs,
     },
-    // Not yet in the ai-hist database, so it has no row id; a negative id
-    // derived from the trajectory id marks it as read from disk.
+    // Not a history row. A negative id derived from the trajectory id marks a disk read.
     history: {
       id: -Number.parseInt(createHash('sha256').update(id).digest('hex').slice(0, 12), 16),
-      source: 'trajectory', sessionId: id, project: scope, prompt: searchText, timestampMs, gitBranch: null,
+      source: 'trajectory', sessionId: id, project: scope, prompt: searchText, timestampMs, locations: [],
     },
   };
 }
@@ -460,26 +458,144 @@ function trajectoryMatches(entry: TrajectoryEntry, query: string): boolean {
     .some(field => includesFolded(field, needle));
 }
 
-/** ai-hist's `search` semantics over the database plus this scope's not-yet-synced findings. */
-function recallMerged(
-  reader: import('ai-hist').AiHist,
+/** Newest-first order shared with ai-hist search: timestamp, then id, then match source. */
+type RecallMatchSource = 'history' | 'session_event';
+
+interface RankedHistory extends HistoryEntry {
+  matchSource: RecallMatchSource;
+}
+
+/**
+ * History rows for this script scope, plus learned findings still only on disk.
+ * ai-hist matches `project` as a substring, so results are kept only when
+ * `project` is exactly the scope. A caller cannot point the read at another
+ * database or another flow. `after` applies to both sources, in the same
+ * newest-first order `search` uses.
+ */
+async function recallMerged(
+  dbPath: string,
   learned: LearnedTrajectory[],
   scope: string,
   query: string,
   options: MemoryRecallOptions | undefined,
-): HistoryEntry[] {
+): Promise<HistoryEntry[]> {
   const limit = options?.limit ?? 50;
   const needle = query.trim();
-  const fromDisk = learned.map(entry => entry.history).filter(entry =>
-    (needle === '' || includesFolded(entry.prompt, needle) || includesFolded(entry.project, needle))
-    && (options?.source === undefined || options.source === 'trajectory')
-    && options?.tag === undefined
-    && (options?.beforeMs === undefined || entry.timestampMs < options.beforeMs));
-  // Fetching `limit + fromDisk.length` rows guarantees a synced copy of any
-  // disk entry that makes the cut is among them, so it dedupes correctly.
-  const synced = reader.search(query, { ...options, project: scope, limit: limit + fromDisk.length });
-  const syncedIds = new Set(synced.filter(entry => entry.source === 'trajectory').map(entry => entry.sessionId));
-  return [...synced, ...fromDisk.filter(entry => !syncedIds.has(entry.sessionId))]
-    .sort((a, b) => b.timestampMs - a.timestampMs)
-    .slice(0, limit);
+  const fromDisk = learned
+    .map(entry => entry.history)
+    .filter(entry => diskVisible(entry, options, needle))
+    .map(entry => rankedHistory(entry, 'history'));
+  const synced = await searchExact(query, dbPath, scope, options, limit);
+  return [...synced.map(historyFromMatch), ...fromDisk]
+    .sort(compareNewestFirst)
+    .slice(0, limit)
+    .map(publishedHistory);
+}
+
+function rankedHistory(entry: HistoryEntry, matchSource: RecallMatchSource): RankedHistory {
+  return { ...entry, matchSource };
+}
+
+/** `(timestampMs DESC, id DESC, matchSource ASC)`, matching `append_window_filters`. */
+function compareNewestFirst(a: RankedHistory, b: RankedHistory): number {
+  if (a.timestampMs !== b.timestampMs) return b.timestampMs - a.timestampMs;
+  if (a.id !== b.id) return b.id - a.id;
+  if (a.matchSource === b.matchSource) return 0;
+  return a.matchSource < b.matchSource ? -1 : 1;
+}
+
+function publishedHistory(row: RankedHistory): HistoryEntry {
+  return {
+    id: row.id,
+    source: row.source,
+    sessionId: row.sessionId,
+    project: row.project,
+    prompt: row.prompt,
+    timestampMs: row.timestampMs,
+    locations: row.locations,
+  };
+}
+
+function historyFromMatch(match: import('ai-hist').SearchMatch): RankedHistory {
+  return rankedHistory({
+    id: match.id,
+    source: match.source,
+    sessionId: match.sessionId,
+    project: match.project,
+    prompt: match.prompt,
+    timestampMs: match.timestampMs,
+    locations: match.locations,
+  }, match.matchSource);
+}
+
+/** Rows read per native page while dropping substring project hits. */
+const EXACT_SCOPE_PAGE = 100;
+/** Full pages scanned before recall refuses an unfinished exact-scope read. */
+const EXACT_SCOPE_PAGE_CAP = 1000;
+
+/**
+ * Page past substring project hits until `needed` rows belong to this scope.
+ * The caller's limit is how many exact rows to return. A short native page
+ * would let a prefix of `${scope}-other` rows hide an older exact match, and
+ * stopping at the cap used to look like an empty result.
+ */
+async function searchExact(
+  query: string,
+  dbPath: string,
+  scope: string,
+  options: MemoryRecallOptions | undefined,
+  needed: number,
+): Promise<import('ai-hist').SearchMatch[]> {
+  const requested = options?.source as string | undefined;
+  if (requested === 'trajectory') return [];
+  const { search } = await import('ai-hist');
+  const exact: import('ai-hist').SearchMatch[] = [];
+  let after = options?.after;
+  const pageSize = Math.max(needed, EXACT_SCOPE_PAGE);
+  let previous: string | undefined;
+  for (let page = 0; exact.length < needed; page += 1) {
+    const matches = await search(query, { ...options, dbPath, project: scope, after, limit: pageSize });
+    if (matches.length === 0) break;
+    for (const match of matches) {
+      if (match.project === scope) exact.push(match);
+      if (exact.length >= needed) return exact.slice(0, needed);
+    }
+    const last = matches[matches.length - 1]!;
+    const key = `${last.timestampMs}:${last.id}:${last.matchSource}`;
+    if (matches.length < pageSize || key === previous) break;
+    if (page + 1 >= EXACT_SCOPE_PAGE_CAP) {
+      throw new Error(`recall scanned ${EXACT_SCOPE_PAGE_CAP} pages without finding ${needed} history row(s) in this script scope`);
+    }
+    previous = key;
+    after = { timestampMs: last.timestampMs, id: last.id, matchSource: last.matchSource };
+  }
+  return exact;
+}
+
+/** Learned files are not harness history, so a harness-only filter hides them. */
+function diskVisible(entry: HistoryEntry, options: MemoryRecallOptions | undefined, needle: string): boolean {
+  if (needle !== '' && !includesFolded(entry.prompt, needle) && !includesFolded(entry.project, needle)) return false;
+  const source = options?.source as string | undefined;
+  if (source !== undefined && source !== 'trajectory') return false;
+  if (options?.tag !== undefined || options?.rawFts) return false;
+  if (options?.sessionId !== undefined && entry.sessionId !== options.sessionId) return false;
+  if (options?.role !== undefined && options.role !== 'all' && options.role !== 'prompt' && options.role !== 'user') return false;
+  if (options?.kinds !== undefined && !options.kinds.includes('history')) return false;
+  if (options?.origin !== undefined && options.origin !== 'human') return false;
+  if (options?.beforeMs !== undefined && entry.timestampMs >= options.beforeMs) return false;
+  if (options?.sinceMs !== undefined && entry.timestampMs < options.sinceMs) return false;
+  if (options?.untilMs !== undefined && entry.timestampMs > options.untilMs) return false;
+  if (options?.after !== undefined && !strictlyAfterHistory(entry, options.after)) return false;
+  return true;
+}
+
+/**
+ * True when a learned file, which sorts as a history match, is strictly after
+ * `cursor` in newest-first `(timestampMs DESC, id DESC)` order. The same
+ * `(timestampMs, id)` is the cursor row itself, or a `session_event` that
+ * already sorts after every history row.
+ */
+function strictlyAfterHistory(entry: HistoryEntry, cursor: NonNullable<MemoryRecallOptions['after']>): boolean {
+  if (entry.timestampMs !== cursor.timestampMs) return entry.timestampMs < cursor.timestampMs;
+  return entry.id < cursor.id;
 }
