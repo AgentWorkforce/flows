@@ -58,9 +58,9 @@ const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
 const STRING_STARTS_WITH = Function.prototype.call.bind(String.prototype.startsWith) as (
   value: string, search: string,
 ) => boolean;
-const BABYSITTER_REF = 'github:AgentWorkforce/flows@8b33ebab8347514f80d9da5a81206a087f641714#extensions/babysitter';
-const BABYSITTER_DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
-const BABYSITTER_MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
+const BABYSITTER_REF = 'github:AgentWorkforce/flows@fa65e6820a361dba12837eb19799a817f164f1d4#extensions/babysitter';
+const BABYSITTER_DIGEST = '2d68e6ecb8ea779bf7e83ab4ec1eea6c84e4d12ccd78de3944fbd258c86169b2';
+const BABYSITTER_MANIFEST_SHA256 = '1291d374fe88f6f0639ac43f4ff73081a24516b32564781856c9a80c52645dea';
 const DELIVERY_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 const RECEIPT_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
@@ -291,7 +291,7 @@ async function verifiedManifest(artifact: HostedExtensionArtifact): Promise<Flow
 }
 
 async function assertPinnedBabysitter(artifact: HostedExtensionArtifact): Promise<void> {
-  if (artifact.ref !== BABYSITTER_REF || artifact.name !== 'babysitter' || artifact.version !== '0.2.0'
+  if (artifact.ref !== BABYSITTER_REF || artifact.name !== 'babysitter' || artifact.version !== '0.2.1'
     || artifact.digest !== BABYSITTER_DIGEST || artifact.manifestSha256 !== BABYSITTER_MANIFEST_SHA256) {
     throw new PluginError(
       'plugin_source_invalid',

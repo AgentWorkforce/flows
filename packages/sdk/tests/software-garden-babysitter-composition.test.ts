@@ -5,14 +5,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addExtensionPlugin } from '../src/cli/add-extension.js';
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/flow-extension-loader.js';
 import { runHostedSoftwareGardenBabysitter } from '../src/hosted-extension-isolation.js';
-import { fakeGithub } from './fake-github.js';
-import { entries } from './babysitter-v0.2.0-fixture.js';
+import { entriesFromDirectory, fakeGithub } from './fake-github.js';
 
-const NATIVE_SHA = '8b33ebab8347514f80d9da5a81206a087f641714';
+const NATIVE_SHA = 'fa65e6820a361dba12837eb19799a817f164f1d4';
 const REF = `github:AgentWorkforce/flows@${NATIVE_SHA}#extensions/babysitter`;
-const DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
-const MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
-const versions = { sdk: '2.0.33', surface: '2.0.33' };
+const DIGEST = '2d68e6ecb8ea779bf7e83ab4ec1eea6c84e4d12ccd78de3944fbd258c86169b2';
+const MANIFEST_SHA256 = '1291d374fe88f6f0639ac43f4ff73081a24516b32564781856c9a80c52645dea';
+const entries = entriesFromDirectory(resolve('../../extensions/babysitter'), 'extensions/babysitter');
+const versions = { sdk: '3.0.0', surface: '3.0.0' };
 const roots: string[] = [];
 
 afterAll(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
@@ -126,8 +126,8 @@ describe('canonical Software Garden + Babysitter composition', () => {
       expect(calls.map(call => (call as { authority: { dispatch: { deliveryId: string } } }).authority.dispatch.deliveryId))
         .toEqual([deliveryId, deliveryId]);
       expect(calls.map(call => (call as { authority: { extension: unknown } }).authority.extension)).toEqual([
-        { name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST },
-        { name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST },
+        { name: 'babysitter', version: '0.2.1', ref: REF, digest: DIGEST },
+        { name: 'babysitter', version: '0.2.1', ref: REF, digest: DIGEST },
       ]);
     },
   );
