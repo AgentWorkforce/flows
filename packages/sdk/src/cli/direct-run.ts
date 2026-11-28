@@ -14,6 +14,7 @@ import {
   AuthoredFlowExecutionError,
 } from '../authored-flow-executor.js';
 import { executeDurableAuthoredFlow } from '../authored-root.js';
+import { prewarmAuthoredRuntime, stopAuthoredRuntimePrewarm } from '../authored-node-runner.js';
 import { AuthoredHumanParked } from '../authored-flow-error.js';
 import { AuthoredFlowLoadError } from '../authored-flow-loader.js';
 import { DirectInputError, parseDirectInput } from '../direct-input.js';
@@ -43,6 +44,20 @@ export async function runDirectFlow(
   dataDir: string,
   options: RunLifecycleOptions = {},
 ): Promise<RunExecution> {
+  try {
+    return await runDirectFlowPrewarmed(path, inputArgument, dataDir, options);
+  } finally {
+    // A refused or failed run may return before anything awaits the prewarm.
+    await stopAuthoredRuntimePrewarm();
+  }
+}
+
+async function runDirectFlowPrewarmed(
+  path: string,
+  inputArgument: string | undefined,
+  dataDir: string,
+  options: RunLifecycleOptions,
+): Promise<RunExecution> {
   // Consume and close the agent-only descriptor before authored source is
   // imported by trigger preflight. Authored code never receives this object.
   const agentEnvironment = localAgentEnvironment();
@@ -60,6 +75,9 @@ export async function runDirectFlow(
     };
   }
 
+  // Loading the flow below imports it and hashes its Surface package; let
+  // the Node probe and executable hash run meanwhile instead of after it.
+  prewarmAuthoredRuntime();
   // Declared triggers are knowable before any daemon or step is started.
   // Importing the authored module is unavoidable here — trigger sources
   // are only observable after `flow(...).on(webhook(...))` has run — but

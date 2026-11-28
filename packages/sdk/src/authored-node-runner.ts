@@ -1,11 +1,10 @@
 import { JournalClient } from './journal-client.js';
 import { FLOW_READ_BUDGET_MS } from './journal-read-policy.js';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { accessSync, constants as fsConstants, readFileSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, isAbsolute, join } from 'node:path';
+import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 import type { AuthoredRootMetadata } from './authored-root.js';
 import type { AuthoredExecutionRuntime, AuthoredFlowExecutionResult, ExecuteAuthoredFlowOptions } from './authored-flow-executor.js';
@@ -19,6 +18,10 @@ import type {
 } from './failure-kinds.js';
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
+import {
+  authoredNodeRefusal as refusal, awaitNodeAuthority, nodeAuthority, prewarmNodeAuthority, stopNodeAuthorityPrewarm,
+  type NodeAuthority,
+} from './authored-node-authority.js';
 import { settlingCompletion } from './step-settling.js';
 import { readAuthoredStepIndex } from './authored-step-index.js';
 import { isTransportRetries } from './validate.js';
@@ -30,93 +33,36 @@ export function installAuthoredNodeSource(source: string): void {
   embeddedSource = source;
 }
 const hash = (value: Uint8Array | string): string => createHash('sha256').update(value).digest('hex');
-const refusal = (): AuthoredFlowExecutionError => new AuthoredFlowExecutionError(
-  'unsupported_promise_lifecycle',
-  'authored execution requires the embedded Node runner and Node >=22.14 on PATH (or an absolute FLOWS_AUTHORED_NODE); no workflow body was executed',
-);
-interface NodeAuthority { path: string; version: string; executableSha256: string }
-/**
- * One authored run asks for the Node authority before root admission and
- * again before spawning the body. Each probe spawns Node and hashes its whole
- * executable (~100 MB), which a cold sandbox pays on the startup path twice.
- * Reuse the previous answer only while the same candidate is selected (the
- * override or the first `node` on PATH, by path and by realpath, so a
- * retargeted symlink re-probes) and the executable it resolved is unchanged.
- * The spawned child still hashes the executable it actually runs and the
- * parent compares that report with this authority, so a binary replaced
- * after the probe is refused, never trusted.
- */
-let probedAuthority: { selection: string; fingerprint: string; authority: NodeAuthority } | undefined;
-function executableFingerprint(path: string): string {
-  const stat = statSync(path, { bigint: true });
-  return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(':');
-}
-/** The candidate `spawnSync(override ?? 'node')` would run, by path and realpath. */
-function selectedCandidate(override: string | undefined): string | undefined {
-  const directories = (process.env['PATH'] ?? '').split(delimiter);
-  // A relative PATH entry resolves against the working directory; do not
-  // guess which candidate the spawn would pick, just probe every time.
-  if (override === undefined && directories.some(directory => !isAbsolute(directory))) return undefined;
-  const candidates = override !== undefined ? [override] : directories.map(directory => join(directory, 'node'));
-  for (const candidate of candidates) {
-    try {
-      if (!statSync(candidate).isFile()) continue;
-      accessSync(candidate, fsConstants.X_OK);
-      return `${candidate}\0${realpathSync(candidate)}`;
-    } catch { /* Not this candidate. */ }
-  }
-  return undefined;
-}
-function nodeAuthority(): NodeAuthority {
-  if (embeddedSource === undefined) throw refusal();
-  const override = process.env['FLOWS_AUTHORED_NODE'];
-  if (override !== undefined && !isAbsolute(override)) throw refusal();
-  const selection = selectedCandidate(override);
-  if (selection !== undefined && probedAuthority?.selection === selection) {
-    try {
-      if (executableFingerprint(probedAuthority.authority.path) === probedAuthority.fingerprint) {
-        return probedAuthority.authority;
-      }
-    } catch { /* A vanished executable is re-probed, and refused there. */ }
-  }
-  probedAuthority = undefined;
-  const probe = spawnSync(override ?? 'node', ['--input-type=module', '--eval', `
-import {createHook} from 'node:async_hooks';
-import {stripTypeScriptTypes,register} from 'node:module';
-const [major,minor]=process.versions.node.split('.').map(Number);
-let init=false,resolve=false;
-const h=createHook({init(_id,type){if(type==='PROMISE')init=true},promiseResolve(){resolve=true}}).enable();
-new Promise(r=>r());h.disable();
-if(process.versions.bun || major<22 || (major===22 && minor<14) || !init || !resolve || typeof stripTypeScriptTypes!=='function' || typeof register!=='function') process.exit(2);
-process.stdout.write(JSON.stringify({path:process.execPath,version:process.versions.node}));
-`], { encoding: 'utf8', timeout: 10_000, maxBuffer: 4096, env: process.env });
-  if (probe.error || probe.status !== 0) throw refusal();
-  try {
-    const value = JSON.parse(probe.stdout) as { path: string; version: string };
-    if (!isAbsolute(value.path) || !/^\d+\.\d+\.\d+$/.test(value.version)) throw refusal();
-    const [major, minor] = value.version.split('.').map(Number);
-    if (major! < 22 || (major === 22 && minor! < 14)) throw refusal();
-    const path = realpathSync(value.path);
-    const fingerprint = executableFingerprint(path);
-    const authority = { path, version: value.version, executableSha256: hash(readFileSync(path)) };
-    // Reuse only an answer for a candidate that could be identified, and not
-    // one whose file was rewritten while it was being hashed.
-    if (selection !== undefined && executableFingerprint(path) === fingerprint) {
-      probedAuthority = { selection, fingerprint, authority };
-    }
-    return authority;
-  } catch { throw refusal(); }
-}
 
 /** Test seam: resolve the authored Node authority exactly as the runner does. */
 export function authoredNodeAuthorityForTest(): Readonly<NodeAuthority> {
+  if (embeddedSource === undefined) throw refusal();
   return nodeAuthority();
 }
 
+async function embeddedNodeAuthority(): Promise<NodeAuthority> {
+  if (embeddedSource === undefined) throw refusal();
+  return await awaitNodeAuthority();
+}
+
+/**
+ * Start the Node probe and executable hash now, so they overlap loading the
+ * flow. Only the standalone CLI runs authored bodies in Node; elsewhere this
+ * does nothing.
+ */
+export function prewarmAuthoredRuntime(): void {
+  if (process.versions['bun'] !== undefined && embeddedSource !== undefined) prewarmNodeAuthority();
+}
+
+/** A run that ends before it needs Node must not wait for the prewarm to finish. */
+export async function stopAuthoredRuntimePrewarm(): Promise<void> {
+  await stopNodeAuthorityPrewarm();
+}
+
 /** Called before root admission/resume; declarative commands never reach it. */
-export function assertAuthoredRuntimeAvailable(): void {
+export async function assertAuthoredRuntimeAvailable(): Promise<void> {
   if (process.versions['bun'] === undefined) assertAuthoredPromiseHooks();
-  else nodeAuthority();
+  else await embeddedNodeAuthority();
 }
 
 /** Bun retains the root lease and local workers. Only the authored body uses Node. */
@@ -126,7 +72,7 @@ export async function runAuthoredInNode(
   rootRunId: string,
   options: ExecuteAuthoredFlowOptions,
 ): Promise<AuthoredFlowExecutionResult> {
-  const authority = nodeAuthority();
+  const authority = await embeddedNodeAuthority();
   const source = embeddedSource!;
   const runtime: AuthoredExecutionRuntime = {
     kind: 'node', version: authority.version,
