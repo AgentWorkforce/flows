@@ -149,13 +149,14 @@ describe('named local flows against a fake HTTP server', () => {
     expect(state.executed).toEqual([]);
   });
 
-  it('uses cloud login and reports named runs without a mirror flag, callback last', async () => {
+  it('uses cloud login to report an explicitly mirrored named run, callback last', async () => {
     vi.stubEnv('FLOWS_CLOUD_TOKEN', undefined);
     await writeFile(join(directory, 'cloud-auth.json'), JSON.stringify({
       apiUrl: 'https://fake-cloud.example', accessToken: 'login-token',
     }));
     const { io, out } = capture();
-    expect(await runCli(['run', 'named-demo', '--input', '{"n":1}', '--json', '--no-observer-link', '--data-dir', directory], io)).toBe(0);
+    expect(await runCli(['run', 'named-demo', '--input', '{"n":1}', '--json', '--no-observer-link',
+      '--cloud-mirror', '--data-dir', directory], io)).toBe(0);
     expect(state.executed).toEqual([join(state.cacheRoot, 'named-demo', `${sha}.flow.ts`)]);
     const registration = requests.find(r => r.path.endsWith('/local-run'))!;
     expect(registration.authorization).toBe('Bearer login-token');
@@ -171,8 +172,19 @@ describe('named local flows against a fake HTTP server', () => {
 
   it('runs a saved name without input using an empty object', async () => {
     const { io } = capture();
-    expect(await runCli(['run', 'named-demo', '--no-observer-link', '--data-dir', directory], io)).toBe(0);
+    expect(await runCli(['run', 'named-demo', '--no-observer-link', '--cloud-mirror',
+      '--data-dir', directory], io)).toBe(0);
     expect(requests.find(r => r.path.endsWith('/local-run'))!.body.inputs).toEqual({});
+  });
+
+  it('resolves a signed-in saved name without treating login as mirror consent', async () => {
+    const { io, err } = capture();
+    expect(await runCli(['run', 'named-demo', '--json', '--no-observer-link', '--data-dir', directory], io)).toBe(0);
+    expect(state.executed).toEqual([join(state.cacheRoot, 'named-demo', `${sha}.flow.ts`)]);
+    expect(requests.map(request => request.path)).toEqual(['/api/v1/flows/by-name/named-demo']);
+    expect(requests.some(request => request.path.endsWith('/local-run'))).toBe(false);
+    expect(requests.some(request => request.path.endsWith('/callback'))).toBe(false);
+    expect(err).toEqual([]);
   });
 
   it('refuses malformed metadata before executing downloaded code', async () => {
@@ -182,19 +194,24 @@ describe('named local flows against a fake HTTP server', () => {
     expect(state.executed).toEqual([]);
   });
 
-  it('reports file runs automatically and stays local with one note when signed out', async () => {
+  it('keeps file runs local regardless of login until mirroring is explicitly requested', async () => {
     const path = join(directory, 'demo.flow.ts');
     await writeFile(path, source);
     const args = ['run', path, '--input', '{}', '--json', '--no-observer-link', '--data-dir', directory];
-    expect(await runCli(args, capture().io)).toBe(0);
+    const signedIn = capture();
+    expect(await runCli(args, signedIn.io)).toBe(0);
+    expect(requests).toEqual([]);
+    expect(signedIn.err).toEqual([]);
+
+    const mirrored = capture();
+    expect(await runCli([...args, '--cloud-mirror'], mirrored.io)).toBe(0);
     expect(requests.find(r => r.path.endsWith('/local-run'))!.body).not.toHaveProperty('flowId');
     requests = [];
     vi.stubEnv('FLOWS_CLOUD_TOKEN', undefined);
     const { io, err } = capture();
     expect(await runCli(args, io)).toBe(0);
     expect(requests).toEqual([]);
-    expect(err).toHaveLength(1);
-    expect(err[0]).toContain('Not signed in; this run stays local');
+    expect(err).toEqual([]);
   });
 
   it('saves a manual flow without repo, approver or trigger and prints its run command', async () => {
