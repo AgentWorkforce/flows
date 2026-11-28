@@ -6,6 +6,7 @@ import { readState } from './github.ts';
 import { record } from './input.ts';
 import type { Merge } from './merge.ts';
 import { agentTask } from './origin.ts';
+import type { TaskOriginContext } from './origin.ts';
 import { eligible } from './state.ts';
 import { subscriptions } from './subscriptions.ts';
 import { admitTask, hasTask } from './task-admission.ts';
@@ -40,7 +41,7 @@ export function parseOutcome(text: string): { summary: string; replies: { id: nu
 }
 
 /** Replies only to inline feedback this run was woken by, each once, bounded and neutralised. */
-function threadReplies(a: Admitted, replies: { id: number; body: string }[]): { commentId: number; body: string }[] {
+function threadReplies(a: FixerAdmitted, replies: { id: number; body: string }[]): { commentId: number; body: string }[] {
   const inline = new Set(a.changed.reviewFeedback.filter(r => r.kind === 'inline').map(r => r.id));
   const seen = new Set<number>();
   return replies.filter(r => inline.has(r.id) && !seen.has(r.id) && seen.add(r.id)).map(r => ({
@@ -51,7 +52,7 @@ function threadReplies(a: Admitted, replies: { id: number; body: string }[]): { 
 
 type Verdict = { reason: 'success' | 'declined' | 'needs_human'; detail?: string };
 /** Either admission's result; a merge-train run also carries its task (task-admission.ts). */
-type FixerAdmitted = Admitted & { task?: Task };
+type FixerAdmitted = Omit<Admitted, 'origin'> & { origin: TaskOriginContext; task?: Task };
 
 /**
  * For resolve_conflict, trunk is merged into the checkout before the agent
@@ -122,7 +123,8 @@ export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentW
     // (5) The bound head, checked out where the agent works. A reused sandbox
     // brings back the PR's previous checkout, with its dependencies.
     const { pr, wake, origin, head, report } = a;
-    const previous = await restore(f, pr);
+    // Service repair starts from a fresh checkout, never from a cached human workspace.
+    const previous = origin.source === 'merge_train_service' ? undefined : await restore(f, pr);
     let verdict: Verdict;
     let session: CachedSession | undefined;
     try {
@@ -144,20 +146,23 @@ export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentW
         // longer has fails that step; the run then starts a fresh agent, which
         // carries the origin context in its task either way.
         const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, 'fix') + (a.task ? taskInstructions(a.task) : '');
-        const resume = previous?.cli === origin.source ? previous.sessionId : undefined;
+        const cli = origin.source === 'merge_train_service' ? 'codex' : origin.source;
+        // A service repair must not inherit a human session's cached context.
+        const resume = origin.source !== 'merge_train_service' && previous?.cli === cli ? previous.sessionId : undefined;
         let result;
         try {
-          result = origin.source === 'codex'
+          result = cli === 'codex'
             ? await f.agent('babysitter-fix', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task, resume })
             : await f.agent('babysitter-fix', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task, resume });
         } catch (error) {
           if (resume === undefined) throw error;
           await report(`${wake.id}: could not resume session ${resume}; starting a fresh agent`);
-          result = origin.source === 'codex'
+          result = cli === 'codex'
             ? await f.agent('babysitter-fix-fresh', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task })
             : await f.agent('babysitter-fix-fresh', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task });
         }
-        session = result.sessionId === undefined ? undefined : { cli: origin.source, sessionId: result.sessionId };
+        session = origin.source === 'merge_train_service' || result.sessionId === undefined
+          ? undefined : { cli, sessionId: result.sessionId };
         verdict = await afterAgent(f, a, work.dir, result.summary, configured.label);
       }
     } catch (error) {
