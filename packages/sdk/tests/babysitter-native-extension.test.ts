@@ -20,7 +20,8 @@ import { assertHostedRuntimeAuthority } from '../src/hosted-extension-runtime.js
 import { JournalClient } from '../src/journal-client.js';
 import { materializePlugin } from '../src/plugin-store.js';
 import { preflightProviderTriggers } from '../src/provider-trigger-contract.js';
-import { entriesFromDirectory, fakeGithub } from './fake-github.js';
+import { fakeGithub } from './fake-github.js';
+import { entries, manifestBytes } from './babysitter-v0.2.0-fixture.js';
 
 const PATH = 'extensions/babysitter';
 const NATIVE_SHA = '8b33ebab8347514f80d9da5a81206a087f641714';
@@ -30,7 +31,6 @@ const MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe4
 // pull_request.labeled, .unlabeled and .ready_for_review route only in the surface after 2.0.25.
 const versions = { sdk: '2.0.26', surface: '2.0.26' };
 const now = () => new Date('2026-09-22T12:00:00Z');
-const entries = entriesFromDirectory(resolve('../..', PATH), PATH);
 const SUBSCRIPTIONS = [
   'pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened', 'pull_request.ready_for_review',
   'pull_request.closed', 'pull_request.labeled', 'pull_request.unlabeled',
@@ -425,7 +425,7 @@ describe('native Babysitter extension', () => {
     const options = { fetch: github().fetch, versions };
     const bundle = await resolveExtensionSubmission(REF, options);
     const exported = await exportBabysitterCatalogBundle({ ref: REF, digest: bundle.digest, manifestSha256: bundle.manifestSha256 }, options);
-    expect(exported.manifest).toEqual(JSON.parse(readFileSync(resolve('../..', PATH, 'flows-plugin.json'), 'utf8')));
+    expect(exported.manifest).toEqual(JSON.parse(manifestBytes.toString('utf8')));
     expect(exported.files.map(f => f.path).sort()).toEqual(['README.md', 'babysitter.flow.ts', 'flows-plugin.json', 'turn.ts']);
   });
 

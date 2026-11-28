@@ -158,7 +158,8 @@ describe('flows add <github ref>', () => {
     expect(existsSync(join(p.cwd, '.flows'))).toBe(false);
   });
   it('refuses a plugin whose compat excludes this runtime', async () => {
-    const gh = github(); const p = project();
+    const gh = github(withManifest(m => ({ ...m, compat: { ...(m.compat as object), surface: '^2.0.22' } })));
+    const p = project();
     expect(await addExtensionPlugin(REF, p.io, { cwd: p.cwd, fetch: gh.fetch, now, versions: { sdk: '2.0.22', surface: '3.0.0' } })).toBe(2);
     expect(p.text()).toContain('REFUSED [plugin_incompatible] babysitter requires surface ^2.0.22; this runtime has 3.0.0.');
   });

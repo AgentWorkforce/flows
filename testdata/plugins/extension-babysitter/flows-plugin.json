@@ -5,8 +5,8 @@
   "version": "0.1.0",
   "description": "Live-state PR babysitter: parallel review lenses, deterministic reconciliation, exact-head merge gate. Worked schema-2 example; the real flow lives on the babysitter branch of AgentWorkforce/flows.",
   "compat": {
-    "surface": "^2.0.22",
-    "sdk": "^2.0.22",
+    "surface": ">=2.0.22 <3.1.0",
+    "sdk": ">=2.0.22 <3.1.0",
     "base": [
       {
         "name": "software-factory",
