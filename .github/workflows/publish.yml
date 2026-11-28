@@ -286,7 +286,7 @@ jobs:
       # runtime-darwin-arm64's own execution smoke does not re-run here — this
       # runner is linux, so pack-release.mjs asserts its shape only, per the
       # foreign-host skip described where that check lives. It already ran for
-      # real on the macos-14 runner that built it.
+      # real on the macos-15 runner that built it.
       - name: Pack and assert all release tarballs
         run: |
           node scripts/pack-release.mjs surface
