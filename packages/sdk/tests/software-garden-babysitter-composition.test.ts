@@ -5,13 +5,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addExtensionPlugin } from '../src/cli/add-extension.js';
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/flow-extension-loader.js';
 import { runHostedSoftwareGardenBabysitter } from '../src/hosted-extension-isolation.js';
-import { entriesFromDirectory, fakeGithub } from './fake-github.js';
+import { fakeGithub } from './fake-github.js';
+import { entries } from './babysitter-v0.2.0-fixture.js';
 
 const NATIVE_SHA = '8b33ebab8347514f80d9da5a81206a087f641714';
 const REF = `github:AgentWorkforce/flows@${NATIVE_SHA}#extensions/babysitter`;
 const DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
 const MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
-const entries = entriesFromDirectory(resolve('../..', 'extensions/babysitter'), 'extensions/babysitter');
 const versions = { sdk: '2.0.33', surface: '2.0.33' };
 const roots: string[] = [];
 

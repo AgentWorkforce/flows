@@ -414,7 +414,7 @@ describe('composition fails closed', () => {
   });
   it('refuses a runtime the extension declares itself incompatible with', async () => {
     const p = project();
-    await install(p);
+    await install(p, variant(m => ({ ...m, compat: { ...(m.compat as object), surface: '^2.0.22' } })));
     await expect(loadAuthoredFlow(p.flow, { versions: { sdk: '2.0.22', surface: '3.0.0' } })).rejects.toMatchObject({ code: 'plugin_incompatible', message: expect.stringContaining('requires surface ^2.0.22') });
   });
   it.each([

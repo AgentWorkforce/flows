@@ -1,0 +1,28 @@
+{
+  "schema": 2,
+  "kind": "flow-extension",
+  "name": "babysitter",
+  "version": "0.2.0",
+  "description": "Native Babysitter for Software Factory: turns a verified PR delivery into one cloud:babysitter-turn request. Cloud rechecks the live babysit label, head, and bound session; this extension holds no GitHub write authority.",
+  "compat": {
+    "surface": "^2.0.26",
+    "sdk": "^2.0.26",
+    "base": [{ "name": "software-factory", "version": "*" }]
+  },
+  "entry": "babysitter.flow.ts",
+  "extends": { "handlers": true, "hooks": [] },
+  "triggers": [
+    { "provider": "github", "event": "pull_request", "actions": ["opened", "synchronize", "reopened", "ready_for_review", "closed", "labeled", "unlabeled"] },
+    { "provider": "github", "event": "pull_request_review", "actions": ["submitted", "dismissed"] },
+    { "provider": "github", "event": "check_run", "actions": ["completed"] },
+    { "provider": "github", "event": "issue_comment", "actions": ["created"] }
+  ],
+  "permissions": {
+    "integrations": ["github"],
+    "harnesses": ["codex"],
+    "mcp": [],
+    "writes": ["cloud:babysitter-turn"],
+    "budget": { "dollars": 1, "wallclock": "5m" }
+  },
+  "preflight": { "credentials": [], "servers": [] }
+}
