@@ -20,14 +20,16 @@ import { assertHostedRuntimeAuthority } from '../src/hosted-extension-runtime.js
 import { JournalClient } from '../src/journal-client.js';
 import { materializePlugin } from '../src/plugin-store.js';
 import { preflightProviderTriggers } from '../src/provider-trigger-contract.js';
-import { fakeGithub } from './fake-github.js';
-import { entries, manifestBytes } from './babysitter-v0.2.0-fixture.js';
+import { entriesFromDirectory, fakeGithub } from './fake-github.js';
+import { entries as historicalEntries } from './babysitter-v0.2.0-fixture.js';
 
 const PATH = 'extensions/babysitter';
-const NATIVE_SHA = '8b33ebab8347514f80d9da5a81206a087f641714';
+const entries = entriesFromDirectory(resolve('../..', PATH), PATH);
+const manifestBytes = readFileSync(resolve('../..', PATH, 'flows-plugin.json'));
+const NATIVE_SHA = 'fa65e6820a361dba12837eb19799a817f164f1d4';
 const REF = `github:AgentWorkforce/flows@${NATIVE_SHA}#${PATH}`;
-const DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
-const MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
+const DIGEST = '2d68e6ecb8ea779bf7e83ab4ec1eea6c84e4d12ccd78de3944fbd258c86169b2';
+const MANIFEST_SHA256 = '1291d374fe88f6f0639ac43f4ff73081a24516b32564781856c9a80c52645dea';
 // pull_request.labeled, .unlabeled and .ready_for_review route only in the surface after 2.0.25.
 const versions = { sdk: '2.0.26', surface: '2.0.26' };
 const now = () => new Date('2026-09-22T12:00:00Z');
@@ -40,12 +42,12 @@ const HEAD = 'a'.repeat(40);
 const dirs: string[] = [];
 afterAll(() => dirs.splice(0).forEach(p => rmSync(p, { recursive: true, force: true })));
 
-function github() {
-  return fakeGithub({ 'AgentWorkforce/flows': { refs: {}, commits: { [NATIVE_SHA]: { entries } } } });
+function github(sha = NATIVE_SHA, files = entries) {
+  return fakeGithub({ 'AgentWorkforce/flows': { refs: {}, commits: { [sha]: { entries: files } } } });
 }
 
 /** Install the committed bytes the way an operator would, then load the composition. */
-async function composed() {
+async function composed(sha = NATIVE_SHA, files = entries) {
   const cwd = mkdtempSync(join(tmpdir(), 'babysitter-native-')); dirs.push(cwd);
   mkdirSync(join(cwd, 'node_modules/@relayflows'), { recursive: true });
   symlinkSync(resolve('node_modules/@relayflows/surface'), join(cwd, 'node_modules/@relayflows/surface'));
@@ -56,7 +58,7 @@ async function composed() {
     readFileSync(resolve('../..', 'examples/software-factory/software-factory.flow.ts')),
   );
   const io = { stdout: () => {}, stderr: (s: string) => { throw new Error(s); } };
-  expect(await addExtensionPlugin(REF, io, { cwd, fetch: github().fetch, now, versions })).toBe(0);
+  expect(await addExtensionPlugin(`github:AgentWorkforce/flows@${sha}#${PATH}`, io, { cwd, fetch: github(sha, files).fetch, now, versions })).toBe(0);
   const loaded = await loadAuthoredFlow(join(cwd, 'software-factory.flow.ts'), { versions });
   const flowPath = join(cwd, 'software-factory.flow.ts');
   const baseLoaded = await loadAuthoredFlow(flowPath, { extensions: 'none', versions });
@@ -129,7 +131,7 @@ describe('native Babysitter extension', () => {
   });
 
   it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
-    'runs the exact published 2.0.26 native bytes in the isolated capability path', async () => {
+    'runs the pinned Babysitter 0.2.1 bytes in the isolated capability path', async () => {
     const { installation, base } = installed.hostedRuntime;
     expect(installation.artifacts).toHaveLength(1);
     expect(installation.artifacts[0]).toMatchObject({ ref: REF, digest: DIGEST, manifestSha256: MANIFEST_SHA256 });
@@ -146,7 +148,7 @@ describe('native Babysitter extension', () => {
         calls.push(request);
         expect(authority.dispatch).toBe(dispatch);
         expect(authority.extension).toEqual({
-          name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST,
+          name: 'babysitter', version: '0.2.1', ref: REF, digest: DIGEST,
         });
         return { receiptId: `bst_${'a'.repeat(64)}`, status: 'queued' };
       } },
@@ -169,6 +171,14 @@ describe('native Babysitter extension', () => {
       { provider: 'github', event: 'pull_request', action: 'labeled' },
       versions,
     )).resolves.toMatchObject({ artifact: { ref: REF, digest: DIGEST } });
+  });
+
+  it('refuses the previous native pin even on a compatible 2.x runtime', async () => {
+    const old = await composed('8b33ebab8347514f80d9da5a81206a087f641714', historicalEntries);
+    await expect(selectHostedExtensionForRuntime(
+      old.hostedRuntime.installation, old.hostedRuntime.base,
+      { provider: 'github', event: 'pull_request', action: 'labeled' }, versions,
+    )).rejects.toMatchObject({ code: 'plugin_event_unroutable' });
   });
 
   it('binds the pinned artifact to the actual base and complete installed route set', async () => {

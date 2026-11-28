@@ -104,10 +104,12 @@ must prove this path at the exact release head. Broader per-agent-step
 file/network/access-preset enforcement remains open in #442 and is not claimed
 by this slice.
 
-The reviewed native source ref is
-`github:AgentWorkforce/flows@8b33ebab8347514f80d9da5a81206a087f641714#extensions/babysitter`,
-the commit included in the published 2.0.26 install. The earlier byte-identical
-pre-release commit is not accepted as authority.
+The hosted runner pins Babysitter 0.2.1 at
+`github:AgentWorkforce/flows@fa65e6820a361dba12837eb19799a817f164f1d4#extensions/babysitter`.
+Its SDK and Surface range is `>=2.0.26 <3.1.0`. The bundle SHA-256 is
+`2d68e6ecb8ea779bf7e83ab4ec1eea6c84e4d12ccd78de3944fbd258c86169b2`
+and the manifest SHA-256 is
+`1291d374fe88f6f0639ac43f4ff73081a24516b32564781856c9a80c52645dea`.
 
 ## Export reviewed bytes
 
