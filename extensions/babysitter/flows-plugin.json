@@ -2,11 +2,11 @@
   "schema": 2,
   "kind": "flow-extension",
   "name": "babysitter",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Native Babysitter for Software Factory: turns a verified PR delivery into one cloud:babysitter-turn request. Cloud rechecks the live babysit label, head, and bound session; this extension holds no GitHub write authority.",
   "compat": {
-    "surface": "^2.0.26",
-    "sdk": "^2.0.26",
+    "surface": ">=2.0.26 <3.1.0",
+    "sdk": ">=2.0.26 <3.1.0",
     "base": [{ "name": "software-factory", "version": "*" }]
   },
   "entry": "babysitter.flow.ts",
